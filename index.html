@@ -9,17 +9,19 @@
   <!-- 載入 Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- 統一模組載入路徑 (Import Map)，徹底解決模組衝突問題 -->
+  <!-- Firebase Compat (相容模式)，解決模組載入衝突問題 -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+  
+  <!-- 統一模組載入路徑 (Import Map) -->
   <script type="importmap">
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0",
-        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js",
-        "firebase/storage": "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js"
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0"
       }
     }
   </script>
@@ -39,13 +41,8 @@
       Gift, Menu, UserCheck
     } from 'lucide-react';
 
-    import { initializeApp } from 'firebase/app';
-    import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from 'firebase/firestore';
-    import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
     // ==========================================
-    // 🔑 已經為您自動帶入所有的專屬金鑰
+    // 🔑 您的專屬金鑰
     // ==========================================
     const GEMINI_API_KEY = "AQ.Ab8RN6KuhBdkUpOGlYBZywqF5DRK6Ay7fXdBZwhtBuMbg-FXpw";
 
@@ -59,11 +56,13 @@
       measurementId: "G-G9ZEWEXVBS"
     };
 
-    // 初始化 Firebase
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const storage = getStorage(app);
+    // 初始化 Firebase (Compat 寫法)
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const storage = firebase.storage();
     const appId = "peyson-erp-production"; 
 
     // --- 分類常數 ---
@@ -197,9 +196,9 @@
             let uploadedUrls = [];
             if (draft.productImages && draft.productImages.length > 0) {
               for (let file of draft.productImages) {
-                const fileRef = ref(storage, `artifacts/${appId}/users/${user.uid}/images/${Date.now()}_${file.name}`);
-                await uploadBytes(fileRef, file);
-                uploadedUrls.push(await getDownloadURL(fileRef));
+                const fileRef = storage.ref(`artifacts/${appId}/users/${user.uid}/images/${Date.now()}_${file.name}`);
+                await fileRef.put(file);
+                uploadedUrls.push(await fileRef.getDownloadURL());
               }
             }
 
@@ -226,7 +225,7 @@
         const newProductIds = [];
         for (const item of previewBatch) {
           const productData = { ...item, status: '已儲存', createdAt: Date.now(), createdBy: loggedInEmployee.username };
-          await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'products'), item.id), productData);
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(item.id).set(productData);
           newProductIds.push(item.id);
         }
         setPreviewBatch(null); setIsSaving(false); setActiveTab('products');
@@ -354,7 +353,7 @@
           const newId = `PSO-${todayStr}-${seq}`;
           const totalAmount = selectedItems.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
           const quoteData = { id: newId, ...formData, items: selectedItems, totalAmount, status, createdBy: loggedInEmployee.username, createdAt: Date.now() };
-          await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'quotes', newId), quoteData);
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').doc(newId).set(quoteData);
           setFormData({ clientName: '', taxId: '', contactPerson: '', phone: '', email: '', clientId: '', validUntil: '', deliveryDate: '', notes: '' });
           setSelectedItems([]); setViewMode('list');
         } catch (err) { alert('儲存失敗: ' + err.message); }
@@ -363,7 +362,7 @@
 
       const handleApprove = async () => {
         if (window.confirm('確定核准此報價單並套印發票章嗎？')) {
-          await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'quotes', currentQuote.id), { status: '已核准', approvedBy: loggedInEmployee.username, approvedAt: Date.now() });
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').doc(currentQuote.id).update({ status: '已核准', approvedBy: loggedInEmployee.username, approvedAt: Date.now() });
           setViewMode('list'); setCurrentQuote(null);
         }
       };
@@ -533,22 +532,22 @@
       useEffect(() => {
         const initAuth = async () => {
           try { 
-            await signInAnonymously(auth); 
+            await auth.signInAnonymously(); 
           } catch (err) { console.error("驗證失敗:", err); }
         };
         initAuth();
-        const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setAuthLoading(false); });
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => { setUser(currentUser); setAuthLoading(false); });
         return () => unsubscribe();
       }, []);
 
       useEffect(() => {
         if (!user) return;
-        const unsubProd = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'products'), (snapshot) => {
+        const unsubProd = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').onSnapshot((snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.createdAt - a.createdAt); setProducts(data);
           setIsDataLoaded(true);
         });
-        const unsubQuotes = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'quotes'), (snapshot) => {
+        const unsubQuotes = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').onSnapshot((snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.createdAt - a.createdAt); setQuotes(data);
         });
@@ -617,7 +616,7 @@
             if (!id || !id.startsWith('B2B-')) continue; 
             
             try {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'products', id), {
+              await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(id).update({
                 title_en: row[1], title_zh: row[2], summary_en: row[3], summary_zh: row[4],
                 description_en: row[5], description_zh: row[6], seo_title_en: row[7], seo_title_zh: row[8],
                 seo_desc_en: row[9], seo_desc_zh: row[10], category: row[21], updatedAt: Date.now()
@@ -742,7 +741,7 @@
                         <td className="p-4 font-medium text-gray-900 max-w-xs truncate" title={p.title_zh || p.title}>{p.title_zh || p.title}</td>
                         <td className="p-4"><span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs">{p.category || '未分類'}</span></td>
                         <td className="p-4 text-center">
-                          <button onClick={async () => { if (window.confirm('確定要刪除嗎？')) await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'products', p.id)); }} className="text-red-400 hover:text-red-600 p-1.5 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                          <button onClick={async () => { if (window.confirm('確定要刪除嗎？')) await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(p.id).delete(); }} className="text-red-400 hover:text-red-600 p-1.5 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
                         </td>
                       </tr>
                     ))
