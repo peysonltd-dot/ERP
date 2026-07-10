@@ -224,8 +224,9 @@
         try {
           const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
           
-          // 使用 REST API 直連 Google，不需要任何後端
-          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+          // ⚠️ 最終升級：1.5 與 2.5 世代已被 Google 官方淘汰。
+          // 我們正式切換到 2026 年最新且速度最快的 gemini-3.5-flash 模型！
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
 
           const prompt = `你是一個專業的 B2B 企業禮品採購專家，請根據提供的資料為「Peyson Ltd」編寫 Shopline 上架文案。
           - 支援客製化：${customStr}。起訂量：${moq}。不可出現價格、人民幣字眼。剔除大陸用語。
