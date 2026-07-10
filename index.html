@@ -9,6 +9,12 @@
   <!-- 載入 Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
+  <!-- Firebase Compat (相容模式)，解決模組載入衝突問題 -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
+  
   <!-- 統一模組載入路徑 (Import Map) -->
   <script type="importmap">
     {
@@ -32,19 +38,10 @@
       AlertCircle, Loader2, Building2, ShoppingCart, Trash2, Cloud, Filter, Users, LogOut, 
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
-      Gift, Menu, UserCheck, Lock, Check
+      Gift, Menu, UserCheck, Lock
     } from 'lucide-react';
 
-    // 強制使用 Firebase 官方 CDN 絕對路徑
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-    import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js';
-
-    // ==========================================
-    // 🔑 您的專屬金鑰 (請確保這裡填寫正確)
-    // ==========================================
-    const GEMINI_API_KEY = "AQ.Ab8RN6KuhBdkUpOGlYBZywqF5DRK6Ay7fXdBZwhtBuMbg-FXpw";
+    // ⚠️ 注意：前端的 Gemini API Key 已經徹底刪除！移至 Render 後端！
 
     const firebaseConfig = {
       apiKey: "AIzaSyC2urkxTWNz1EVy08MxyGfmAcPjGaU95CA",
@@ -56,14 +53,14 @@
       measurementId: "G-G9ZEWEXVBS"
     };
 
-    // 初始化 Firebase
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const storage = getStorage(app);
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const storage = firebase.storage();
     const appId = "peyson-erp-production"; 
 
-    // --- 分類常數 ---
     const categoryTree = {
       "餐廚用品": ["開瓶器", "杯墊", "冰塊", "環保餐具"],
       "水瓶/杯子": ["環保杯", "保溫杯", "馬克杯", "水壺", "酒杯/茶杯"],
@@ -80,10 +77,13 @@
     };
 
     const parseCSV = (str) => {
-      const arr = []; let quote = false; let row = 0, col = 0;
+      const arr = [];
+      let quote = false;
+      let row = 0, col = 0;
       for (let c = 0; c < str.length; c++) {
         let cc = str[c], nc = str[c+1];
-        arr[row] = arr[row] || []; arr[row][col] = arr[row][col] || '';
+        arr[row] = arr[row] || [];
+        arr[row][col] = arr[row][col] || '';
         if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
         if (cc === '"') { quote = !quote; continue; }
         if (cc === ',' && !quote) { ++col; continue; }
@@ -95,9 +95,6 @@
       return arr;
     };
 
-    // ==========================================
-    // 元件 1：簡易安全登入畫面
-    // ==========================================
     const SimpleLogin = ({ onLogin }) => {
       const [username, setUsername] = useState('');
       const [password, setPassword] = useState('');
@@ -123,8 +120,20 @@
               <p className="text-gray-500 text-sm mt-2">請輸入企業專屬代碼以登入系統</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-5">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">企業帳號</label><div className="relative"><User className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" /><input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請輸入帳號" /></div></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">登入密碼</label><div className="relative"><Lock className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" /><input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請輸入密碼" /></div></div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">企業帳號</label>
+                <div className="relative">
+                  <User className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
+                  <input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請輸入帳號" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">登入密碼</label>
+                <div className="relative">
+                  <Lock className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
+                  <input type="password" required value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請輸入密碼" />
+                </div>
+              </div>
               {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/> {error}</div>}
               <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md transition-all flex justify-center items-center gap-2">登入系統</button>
             </form>
@@ -133,11 +142,7 @@
       );
     };
 
-    // ==========================================
-    // 全新 UX：AI 流水線工作台 (單筆連續開發模式)
-    // ==========================================
-    const AIImportView = ({ user, loggedInEmployee, setActiveTab }) => {
-      // --- 左側：輸入表單狀態 ---
+    const AIImportView = ({ user, loggedInEmployee, setActiveTab, downloadCSV }) => {
       const [rawText, setRawText] = useState('');
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
@@ -150,7 +155,6 @@
       const fileInputRef = useRef(null);
       const specInputRef = useRef(null);
 
-      // --- 右側：預覽與系統狀態 ---
       const [aiResult, setAiResult] = useState(null);
       const [isGenerating, setIsGenerating] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
@@ -169,17 +173,13 @@
         }
       };
 
-      // 執行 AI 轉換
       const handleGenerate = async () => {
         if (!rawText.trim() && !specImageBase64) return setError('請貼上文字說明或上傳規格圖片！');
-        if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("請貼上")) return setError("系統找不到有效的 Gemini API Key。");
         
         setError(''); setSuccessMsg(''); setIsGenerating(true); setAiResult(null);
 
         try {
           const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
-          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
           const prompt = `你是一個專業的 B2B 企業禮品採購專家，請根據提供的資料為「Peyson Ltd」編寫 Shopline 上架文案。
           - 支援客製化：${customStr}。起訂量：${moq}。不可出現價格、人民幣字眼。剔除大陸用語。
           - 【排版要求】：純文字輸出，僅使用換行符號與基本符號（如 - 或 •）。嚴禁任何 HTML 標籤。
@@ -188,23 +188,36 @@
           
           必須回傳嚴格的 JSON 格式，包含以下 key: title_zh, title_en, summary_zh, summary_en, description_zh, description_en, seo_title_zh, seo_title_en, seo_desc_zh, seo_desc_en。`;
 
-          const parts = [{ text: prompt }];
-          if (specImageBase64) parts.push({ inlineData: { mimeType: specImageBase64.mimeType, data: specImageBase64.data } });
-
+          // 將資料打包，準備傳給自己的後端
           const payload = {
-            contents: [{ role: "user", parts: parts }],
-            generationConfig: { responseMimeType: "application/json" }
+            prompt: prompt,
+            imageBase64: specImageBase64 ? specImageBase64.data : null,
+            mimeType: specImageBase64 ? specImageBase64.mimeType : null
           };
 
-          const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-          if (!response.ok) throw new Error(`API 請求失敗: 狀態碼 ${response.status}`);
+          // ==============================================================
+          // ⚠️⚠️⚠️ 警告：請替換下方為您 Render 部署成功的後端網址 ⚠️⚠️⚠️
+          // ==============================================================
+          const backendUrl = "https://peyson-erp-backend.onrender.com/api/generate";
+
+          const response = await fetch(backendUrl, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload) 
+          });
+          
+          if (!response.ok) {
+             const errorData = await response.json();
+             console.error("API Error Payload:", errorData);
+             throw new Error(`後端連線錯誤 ${response.status}: ${errorData?.details || errorData?.error || '未知錯誤'}`);
+          }
           
           const data = await response.json();
-          let rawResultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          let rawResultText = data.result;
           
-          if (!rawResultText) throw new Error("AI 回傳空資料");
+          if (!rawResultText) throw new Error("後端回傳空資料");
 
-          // 超強容錯處理：清除 Gemini 有時會多加的 ```json 和 ``` 標籤
+          // 超強容錯處理：清除有時會多加的 ```json 和 ``` 標籤
           rawResultText = rawResultText.replace(/^```json/mi, '').replace(/```$/m, '').trim();
           
           const parsedData = JSON.parse(rawResultText);
@@ -212,7 +225,7 @@
           
         } catch (err) {
           console.error("生成失敗:", err);
-          setError(`AI 轉換失敗，請檢查資料或重試 (${err.message})`);
+          setError(`AI 轉換失敗: ${err.message}`);
         } finally {
           setIsGenerating(false);
         }
@@ -220,23 +233,20 @@
 
       const handlePreviewChange = (field, val) => { setAiResult({ ...aiResult, [field]: val }); };
 
-      // 儲存至資料庫並清空左側
       const handleSave = async () => {
         if (!aiResult) return;
         setIsSaving(true); setError(''); setSuccessMsg('');
 
         try {
-          // 1. 上傳圖片
           let uploadedUrls = [];
           if (productImages.length > 0) {
             for (let file of productImages) {
-              const fileRef = ref(storage, `artifacts/${appId}/users/${user.uid}/images/${Date.now()}_${file.name}`);
-              await uploadBytes(fileRef, file);
-              uploadedUrls.push(await getDownloadURL(fileRef));
+              const fileRef = storage.ref(`artifacts/${appId}/users/${user.uid}/images/${Date.now()}_${file.name}`);
+              await fileRef.put(file);
+              uploadedUrls.push(await fileRef.getDownloadURL());
             }
           }
 
-          // 2. 儲存資料
           const finalCategoryString = `所有禮品 > ${mainCategory}${subCategory ? ` > ${subCategory}` : ''}`;
           const newId = `B2B-${new Date().getTime().toString().slice(-6)}`;
           const productData = { 
@@ -244,9 +254,8 @@
             status: '已建檔', createdAt: Date.now(), createdBy: loggedInEmployee.username 
           };
 
-          await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'products'), newId), productData);
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(newId).set(productData);
 
-          // 3. 成功後清空流水線，準備下一筆
           setSuccessMsg(`✅ 商品 [${aiResult.title_zh}] 已成功存入內部商品庫！`);
           setAiResult(null); setRawText(''); setSpecImageBase64(null); setProductImages([]);
           if (fileInputRef.current) fileInputRef.current.value = '';
@@ -261,18 +270,17 @@
       };
 
       return (
-        <div className="p-8 max-w-[1400px] h-[calc(100vh-64px)] flex flex-col mx-auto animate-in fade-in duration-300">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <Wand2 className="w-6 h-6 text-blue-600"/> AI 快速建檔流水線
-            </h2>
-            <p className="text-gray-500 text-sm mt-1">左側貼上資料 $\rightarrow$ 點擊生成 $\rightarrow$ 右側預覽並存檔。存檔後可至「內部商品庫」勾選並匯出 CSV。</p>
+        <div className="p-8 max-w-[1600px] h-[calc(100vh-64px)] flex flex-col mx-auto animate-in fade-in duration-300">
+          <div className="mb-6 flex justify-between items-end">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Wand2 className="w-6 h-6 text-blue-600"/> AI 快速建檔流水線
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">左側貼上資料 $\rightarrow$ 點擊生成 $\rightarrow$ 右側預覽並存檔。存檔後可至「內部商品庫」勾選並匯出 CSV。</p>
+            </div>
           </div>
 
-          {/* 左右對半分的版面 */}
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8 min-h-0">
-            
-            {/* 左側：輸入區 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 font-bold text-gray-700 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> 1. 輸入商品基礎資料</div>
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
@@ -293,12 +301,11 @@
                 {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2"><AlertCircle className="w-5 h-5 shrink-0"/> {error}</div>}
                 {successMsg && <div className="mb-4 p-3 bg-green-50 text-green-700 text-sm rounded-lg flex items-center gap-2"><CheckCircle2 className="w-5 h-5 shrink-0"/> {successMsg}</div>}
                 <button onClick={handleGenerate} disabled={isGenerating || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all text-lg ${isGenerating ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                  {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> AI 正在轉換中...</> : <><Wand2 className="w-6 h-6"/> 2. 點擊進行 AI 雙語轉換</>}
+                  {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> AI 正在從伺服器讀取與翻譯中...</> : <><Wand2 className="w-6 h-6"/> 2. 點擊進行 AI 雙語轉換</>}
                 </button>
               </div>
             </div>
 
-            {/* 右側：預覽與儲存區 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
                <div className="bg-gray-800 px-6 py-4 border-b border-gray-900 font-bold text-white flex justify-between items-center"><span className="flex items-center gap-2"><Eye className="w-5 h-5 text-green-400"/> 3. 預覽與確認</span></div>
                
@@ -306,13 +313,13 @@
                  {!aiResult && !isGenerating && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
                        <FileText className="w-16 h-16 mb-4 opacity-20" />
-                       <p>等待生成中...</p>
+                       <p>請先在左側輸入資料並點擊轉換</p>
                     </div>
                  )}
                  {isGenerating && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10">
                        <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-                       <p className="text-blue-600 font-bold animate-pulse">Gemini AI 正在為您排版與翻譯...</p>
+                       <p className="text-blue-600 font-bold animate-pulse">後端伺服器正在為您排版與翻譯...</p>
                     </div>
                  )}
                  
@@ -323,6 +330,10 @@
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">商品名稱</label><input type="text" value={aiResult.title_zh} onChange={e => handlePreviewChange('title_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm font-bold text-gray-900" /></div>
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">商品摘要</label><textarea value={aiResult.summary_zh} onChange={e => handlePreviewChange('summary_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm" rows="2" /></div>
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">詳細描述 (純文字)</label><textarea value={aiResult.description_zh} onChange={e => handlePreviewChange('description_zh', e.target.value)} className="w-full p-3 border border-gray-200 rounded text-sm leading-relaxed min-h-[150px]" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO 標題</label><textarea value={aiResult.seo_title_zh} onChange={e => handlePreviewChange('seo_title_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
+                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO 簡介</label><textarea value={aiResult.seo_desc_zh} onChange={e => handlePreviewChange('seo_desc_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
+                        </div>
                       </div>
 
                       <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm space-y-4">
@@ -330,12 +341,15 @@
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">Product Name</label><input type="text" value={aiResult.title_en} onChange={e => handlePreviewChange('title_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm font-bold text-gray-900" /></div>
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">Product Summary</label><textarea value={aiResult.summary_en} onChange={e => handlePreviewChange('summary_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm" rows="2" /></div>
                         <div><label className="block text-xs font-bold text-gray-500 mb-1">Description (Text)</label><textarea value={aiResult.description_en} onChange={e => handlePreviewChange('description_en', e.target.value)} className="w-full p-3 border border-gray-200 rounded text-sm leading-relaxed min-h-[150px]" /></div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO Title</label><textarea value={aiResult.seo_title_en} onChange={e => handlePreviewChange('seo_title_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
+                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO Desc</label><textarea value={aiResult.seo_desc_en} onChange={e => handlePreviewChange('seo_desc_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
+                        </div>
                       </div>
                     </div>
                  )}
                </div>
 
-               {/* 存檔按鈕固定在下方 */}
                <div className="p-6 bg-white border-t border-gray-200 absolute bottom-0 left-0 right-0">
                   <button onClick={handleSave} disabled={!aiResult || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all text-lg ${!aiResult ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : isSaving ? 'bg-green-400 text-white cursor-wait' : 'bg-green-600 hover:bg-green-500 text-white'}`}>
                     {isSaving ? <><Loader2 className="w-6 h-6 animate-spin"/> 資料與圖片儲存中...</> : <><Save className="w-6 h-6"/> 確認無誤，建檔至內部商品庫</>}
@@ -347,100 +361,6 @@
       );
     };
 
-    // ==========================================
-    // 內部商品庫 (PIM) - 在這裡選擇商品匯出
-    // ==========================================
-    const ProductManagerView = ({ products, searchQuery, setSearchQuery, selectedCategory, setSelectedCategory, selectedProductIds, setSelectedProductIds, handleCsvUpdateUpload, csvUploadRef, downloadCSV, exportModalOpen, setExportModalOpen, user }) => {
-        const filteredProducts = products.filter(p => {
-          const pTitle = p.title_zh || p.title || '';
-          const matchKeyword = pTitle.toLowerCase().includes(searchQuery.toLowerCase()) || (p.id || '').toLowerCase().includes(searchQuery.toLowerCase());
-          const matchCategory = selectedCategory === '全部' || p.category === selectedCategory;
-          return matchKeyword && matchCategory;
-        });
-        const usedCategories = [...new Set(products.map(p => p.category).filter(c => c))];
-
-        const handleToggleSelectProduct = (id) => {
-          if (selectedProductIds.includes(id)) setSelectedProductIds(selectedProductIds.filter(pid => pid !== id));
-          else setSelectedProductIds([...selectedProductIds, id]);
-        };
-
-        return (
-          <div className="p-8 space-y-6 animate-in fade-in duration-300 max-w-6xl">
-            <div className="flex justify-between items-center">
-              <div>
-                 <h2 className="text-2xl font-bold text-gray-800">內部商品庫 (PIM)</h2>
-                 <p className="text-gray-500 text-sm mt-1">勾選您要上架的商品，點擊右方匯出為 Shopline CSV。</p>
-              </div>
-              <div className="flex gap-3 relative">
-                <button onClick={() => csvUploadRef.current?.click()} className="px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-bold hover:bg-green-100 flex items-center gap-2 shadow-sm transition-colors">
-                  <Upload className="w-4 h-4" /> 從 Excel 覆蓋更新
-                </button>
-                <input type="file" ref={csvUploadRef} onChange={handleCsvUpdateUpload} accept=".csv" className="hidden" />
-
-                <button onClick={() => setExportModalOpen(!exportModalOpen)} className={`px-4 py-2 text-white rounded-lg text-sm font-bold flex items-center gap-2 shadow-md transition-colors ${selectedProductIds.length > 0 ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/30' : 'bg-gray-400 cursor-not-allowed'}`}>
-                  <Download className="w-4 h-4" /> 匯出 Shopline CSV ▾
-                </button>
-                {exportModalOpen && (
-                  <div className="absolute top-12 right-0 w-56 bg-white border border-gray-100 shadow-xl rounded-xl overflow-hidden z-10 animate-in fade-in slide-in-from-top-2">
-                    <button onClick={() => downloadCSV('selected')} disabled={selectedProductIds.length === 0} className="w-full text-left px-4 py-4 text-sm font-bold text-blue-600 hover:bg-blue-50 disabled:text-gray-400 disabled:bg-gray-50 flex items-center gap-2"><Check className="w-4 h-4"/>匯出勾選的 {selectedProductIds.length} 筆</button>
-                    <div className="border-t border-gray-100"></div>
-                    <button onClick={() => downloadCSV('today')} className="w-full text-left px-4 py-3 text-sm text-gray-600 hover:bg-gray-50">匯出今日新增的項目</button>
-                    <button onClick={() => downloadCSV('all')} className="w-full text-left px-4 py-3 text-sm text-gray-600 hover:bg-gray-50">全庫暴力匯出 ({products.length}筆)</button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4 items-center">
-              <div className="relative flex-1"><Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" /><input type="text" placeholder="搜尋商品名稱或編號..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/></div>
-              <div className="flex items-center gap-2"><Filter className="w-5 h-5 text-gray-400" /><select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="py-2 pl-3 pr-8 border border-gray-200 rounded-lg text-sm bg-white"><option value="全部">全部分類</option>{usedCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
-                  <tr>
-                    <th className="p-4 w-12 text-center">
-                      <button onClick={() => setSelectedProductIds(selectedProductIds.length === filteredProducts.length && filteredProducts.length > 0 ? [] : filteredProducts.map(p => p.id))} className="text-gray-400 hover:text-blue-600">
-                        {selectedProductIds.length > 0 && selectedProductIds.length === filteredProducts.length ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5"/>}
-                      </button>
-                    </th>
-                    <th className="p-4 w-20">圖片</th><th className="p-4">商品編號</th><th className="p-4">名稱 (中/英)</th><th className="p-4">官網分類</th><th className="p-4 text-center">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {filteredProducts.length === 0 ? (
-                    <tr><td colSpan="6" className="p-12 text-center text-gray-400"><Package className="w-12 h-12 mx-auto mb-3 opacity-20"/>尚無商品資料。請至「AI 批次開發」建檔。</td></tr>
-                  ) : (
-                    filteredProducts.map(p => (
-                      <tr key={p.id} className={`hover:bg-blue-50/50 group transition-colors ${selectedProductIds.includes(p.id) ? 'bg-blue-50/80' : ''}`}>
-                        <td className="p-4 text-center cursor-pointer" onClick={() => handleToggleSelectProduct(p.id)}>
-                          {selectedProductIds.includes(p.id) ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-gray-300"/>}
-                        </td>
-                        <td className="p-4">
-                           {p.imageUrls && p.imageUrls.length > 0 ? <img src={p.imageUrls[0]} alt="商品" className="w-12 h-12 object-cover rounded-lg border border-gray-200" /> : <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300 text-xs">無圖</div>}
-                        </td>
-                        <td className="p-4 text-gray-500 font-mono text-xs">{p.id}</td>
-                        <td className="p-4 max-w-xs">
-                          <p className="font-bold text-gray-900 truncate" title={p.title_zh}>{p.title_zh}</p>
-                          <p className="text-gray-400 text-xs truncate" title={p.title_en}>{p.title_en}</p>
-                        </td>
-                        <td className="p-4"><span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs">{p.category || '未分類'}</span></td>
-                        <td className="p-4 text-center">
-                          <button onClick={async () => { if (window.confirm('確定要刪除嗎？')) { const db = getFirestore(); await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'products', p.id)); setSelectedProductIds(selectedProductIds.filter(id => id !== p.id)); } }} className="text-red-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-          </div>
-        </div>
-      )};
-
-    // ==========================================
-    // 元件 2：客戶報價單與簽核工作流
-    // ==========================================
     const QuotesView = ({ user, loggedInEmployee, products, quotes }) => {
       const [viewMode, setViewMode] = useState('list');
       const [currentQuote, setCurrentQuote] = useState(null);
@@ -474,8 +394,7 @@
           const newId = `PSO-${todayStr}-${seq}`;
           const totalAmount = selectedItems.reduce((sum, item) => sum + (item.qty * item.unitPrice), 0);
           const quoteData = { id: newId, ...formData, items: selectedItems, totalAmount, status, createdBy: loggedInEmployee.username, createdAt: Date.now() };
-          const db = getFirestore();
-          await setDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'quotes'), newId), quoteData);
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').doc(newId).set(quoteData);
           setFormData({ clientName: '', taxId: '', contactPerson: '', phone: '', email: '', clientId: '', validUntil: '', deliveryDate: '', notes: '' });
           setSelectedItems([]); setViewMode('list');
         } catch (err) { alert('儲存失敗: ' + err.message); }
@@ -484,8 +403,7 @@
 
       const handleApprove = async () => {
         if (window.confirm('確定核准此報價單並套印發票章嗎？')) {
-          const db = getFirestore();
-          await updateDoc(doc(collection(db, 'artifacts', appId, 'users', user.uid, 'quotes'), currentQuote.id), { status: '已核准', approvedBy: loggedInEmployee.username, approvedAt: Date.now() });
+          await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').doc(currentQuote.id).update({ status: '已核准', approvedBy: loggedInEmployee.username, approvedAt: Date.now() });
           setViewMode('list'); setCurrentQuote(null);
         }
       };
@@ -627,9 +545,6 @@
       );
     };
 
-    // ==========================================
-    // 主應用程式 (App)
-    // ==========================================
     function App() {
       const [isLoggedIn, setIsLoggedIn] = useState(false);
       const [activeTab, setActiveTab] = useState('dashboard');
@@ -660,7 +575,7 @@
           } catch (err) { 
             console.error("驗證失敗:", err); 
             if (err.code === 'auth/unauthorized-domain') {
-              alert('⚠️ 系統警告：您的網址尚未獲得 Firebase 授權！\n\n請前往 Firebase 後台 -> Authentication -> Settings (設定) -> Authorized domains (授權網域)，將目前的網址加進去。');
+              alert('⚠️ 系統警告：您的網址尚未獲得 Firebase 授權！\n\n請前往 Firebase 後台 -> Authentication -> Settings -> Authorized domains，將目前的網址加進去。');
             } else {
               alert('登入 Firebase 失敗：' + err.message);
             }
@@ -668,22 +583,18 @@
           }
         };
         initAuth();
-        const unsubscribe = auth.onAuthStateChanged((currentUser) => { 
-          setUser(currentUser); 
-          setAuthLoading(false); 
-        });
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => { setUser(currentUser); setAuthLoading(false); });
         return () => unsubscribe();
       }, []);
 
       useEffect(() => {
         if (!user) return;
-        const db = getFirestore();
-        const unsubProd = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'products'), (snapshot) => {
+        const unsubProd = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').onSnapshot((snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.createdAt - a.createdAt); setProducts(data);
           setIsDataLoaded(true);
         });
-        const unsubQuotes = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'quotes'), (snapshot) => {
+        const unsubQuotes = db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('quotes').onSnapshot((snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           data.sort((a, b) => b.createdAt - a.createdAt); setQuotes(data);
         });
@@ -746,14 +657,13 @@
           if (rows.length <= 2) return alert('CSV 格式不符或沒有資料列。');
 
           let updateCount = 0;
-          const db = getFirestore();
           for (let i = 2; i < rows.length; i++) {
             const row = rows[i];
             const id = row[0]; 
             if (!id || !id.startsWith('B2B-')) continue; 
             
             try {
-              await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'products', id), {
+              await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(id).update({
                 title_en: row[1], title_zh: row[2], summary_en: row[3], summary_zh: row[4],
                 description_en: row[5], description_zh: row[6], seo_title_en: row[7], seo_title_zh: row[8],
                 seo_desc_en: row[9], seo_desc_zh: row[10], category: row[21], updatedAt: Date.now()
@@ -779,8 +689,8 @@
             {isSidebarOpen ? <div className="px-6 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider truncate">系統核心</div> : <div className="w-8 border-t border-gray-700 mx-auto my-3"></div>}
             {[
               { id: 'dashboard', icon: LayoutDashboard, label: '系統總覽' },
-              { id: 'ai-import', icon: Wand2, label: 'AI 批次開發' },
               { id: 'products', icon: Package, label: '內部商品庫', count: products.length },
+              { id: 'ai-import', icon: Wand2, label: 'AI 流水線' },
             ].map(item => (
               <button key={item.id} onClick={() => setActiveTab(item.id)} title={!isSidebarOpen ? item.label : ''} className={`w-full flex items-center py-3 text-sm transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-r-4 border-transparent'} ${isSidebarOpen ? 'px-6 gap-3' : 'justify-center px-0'}`}>
                 <item.icon className="w-5 h-5 shrink-0" />
@@ -816,12 +726,88 @@
         </div>
       );
 
-      // 檢查登入狀態
+      const renderProductManager = () => {
+        const filteredProducts = products.filter(p => {
+          const pTitle = p.title_zh || p.title || '';
+          const matchKeyword = pTitle.toLowerCase().includes(searchQuery.toLowerCase()) || (p.id || '').toLowerCase().includes(searchQuery.toLowerCase());
+          const matchCategory = selectedCategory === '全部' || p.category === selectedCategory;
+          return matchKeyword && matchCategory;
+        });
+        const usedCategories = [...new Set(products.map(p => p.category).filter(c => c))];
+
+        return (
+          <div className="p-8 space-y-6 animate-in fade-in duration-300 max-w-6xl">
+            <div className="flex justify-between items-center">
+              <div><h2 className="text-2xl font-bold text-gray-800">內部商品庫 (PIM)</h2></div>
+              <div className="flex gap-3 relative">
+                <button onClick={() => csvUploadRef.current?.click()} className="px-4 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-bold hover:bg-green-100 flex items-center gap-2 shadow-sm transition-colors">
+                  <Upload className="w-4 h-4" /> 從 Excel/CSV 覆蓋更新
+                </button>
+                <input type="file" ref={csvUploadRef} onChange={handleCsvUpdateUpload} accept=".csv" className="hidden" />
+
+                <button onClick={() => setExportModalOpen(!exportModalOpen)} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2 shadow-sm">
+                  <Download className="w-4 h-4" /> 匯出 CSV ▾
+                </button>
+                {exportModalOpen && (
+                  <div className="absolute top-12 right-0 w-48 bg-white border border-gray-100 shadow-xl rounded-xl overflow-hidden z-10 animate-in fade-in slide-in-from-top-2">
+                    <button onClick={() => downloadCSV('all')} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-50">全庫匯出 ({products.length})</button>
+                    <button onClick={() => downloadCSV('today')} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 border-b border-gray-50">匯出今日新增</button>
+                    <button onClick={() => downloadCSV('selected')} disabled={selectedProductIds.length === 0} className="w-full text-left px-4 py-3 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:text-gray-400 disabled:bg-gray-50">匯出已勾選 ({selectedProductIds.length})</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4 items-center">
+              <div className="relative flex-1"><Search className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" /><input type="text" placeholder="搜尋商品名稱或編號..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"/></div>
+              <div className="flex items-center gap-2"><Filter className="w-5 h-5 text-gray-400" /><select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="py-2 pl-3 pr-8 border border-gray-200 rounded-lg text-sm bg-white"><option value="全部">全部分類</option>{usedCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select></div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
+                  <tr>
+                    <th className="p-4 w-12 text-center">
+                      <button onClick={() => setSelectedProductIds(selectedProductIds.length === filteredProducts.length ? [] : filteredProducts.map(p => p.id))} className="text-gray-400 hover:text-blue-600">
+                        {selectedProductIds.length > 0 && selectedProductIds.length === filteredProducts.length ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5"/>}
+                      </button>
+                    </th>
+                    <th className="p-4">商品編號</th><th className="p-4">名稱 (繁體中文)</th><th className="p-4">分類</th><th className="p-4 text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredProducts.length === 0 ? (
+                    <tr><td colSpan="5" className="p-8 text-center text-gray-400">找不到商品資料。</td></tr>
+                  ) : (
+                    filteredProducts.map(p => (
+                      <tr key={p.id} className={`hover:bg-blue-50/50 group ${selectedProductIds.includes(p.id) ? 'bg-blue-50/50' : ''}`}>
+                        <td className="p-4 text-center cursor-pointer" onClick={() => handleToggleSelectProduct(p.id)}>
+                          {selectedProductIds.includes(p.id) ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-gray-300"/>}
+                        </td>
+                        <td className="p-4 text-gray-500 font-mono text-xs">{p.id}</td>
+                        <td className="p-4 font-medium text-gray-900 max-w-xs truncate" title={p.title_zh || p.title}>{p.title_zh || p.title}</td>
+                        <td className="p-4"><span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-md text-xs">{p.category || '未分類'}</span></td>
+                        <td className="p-4 text-center">
+                          <button onClick={async () => { if (window.confirm('確定要刪除嗎？')) await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('products').doc(p.id).delete(); }} className="text-red-400 hover:text-red-600 p-1.5 opacity-0 group-hover:opacity-100"><Trash2 className="w-4 h-4" /></button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+          </div>
+        </div>
+      )};
+
       if (!isLoggedIn) {
         return <SimpleLogin onLogin={() => setIsLoggedIn(true)} />;
       }
 
-      if (authLoading || !isDataLoaded) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 text-blue-500 animate-spin" /></div>;
+      if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4"><Loader2 className="w-8 h-8 text-blue-500 animate-spin" /><p className="text-gray-500 font-medium">正在連線至伺服器...</p></div>;
+      
+      if (!user) return <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4 p-8 text-center"><AlertCircle className="w-12 h-12 text-red-500" /><h2 className="text-xl font-bold text-gray-800">連線被拒絕！</h2><p className="text-gray-600 max-w-md">這通常是因為您目前的網址尚未加入 Firebase 的白名單。<br/><br/>請前往 Firebase 後台 &rarr; Authentication &rarr; Settings &rarr; Authorized domains，將目前的網址加進去。</p></div>;
+
+      if (!isDataLoaded) return <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4"><Loader2 className="w-8 h-8 text-blue-500 animate-spin" /><p className="text-gray-500 font-medium">正在載入資料庫...</p></div>;
 
       return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
@@ -834,8 +820,8 @@
                 <h2 className="text-2xl font-bold text-gray-800">早安，{loggedInEmployee.username}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
                   {[
-                    { label: '批次開發助手', val: '前往作業', icon: Wand2, col: 'bg-purple-500', tab: 'ai-import' },
                     { label: '雲端商品庫', val: products.length, icon: Package, col: 'bg-blue-500', tab: 'products' },
+                    { label: '批次開發助手', val: '前往作業', icon: Wand2, col: 'bg-purple-500', tab: 'ai-import' },
                     { label: '客戶報價單', val: quotes.length, icon: FileText, col: 'bg-orange-500', tab: 'quotes' },
                     { label: 'CRM / 客戶管理', val: '即將推出', icon: Users, col: 'bg-green-500', tab: 'clients' }
                   ].map((c, i) => (
@@ -847,7 +833,7 @@
                 </div>
               </div>
             )}
-            {activeTab === 'products' && <ProductManagerView products={products} searchQuery={searchQuery} setSearchQuery={setSearchQuery} selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedProductIds={selectedProductIds} setSelectedProductIds={setSelectedProductIds} handleCsvUpdateUpload={handleCsvUpdateUpload} csvUploadRef={csvUploadRef} downloadCSV={downloadCSV} exportModalOpen={exportModalOpen} setExportModalOpen={setExportModalOpen} user={user} />}
+            {activeTab === 'products' && renderProductManager()}
             {activeTab === 'ai-import' && <AIImportView user={user} loggedInEmployee={loggedInEmployee} setActiveTab={setActiveTab} downloadCSV={downloadCSV} />}
             {activeTab === 'quotes' && <QuotesView user={user} loggedInEmployee={loggedInEmployee} products={products} quotes={quotes} />}
             {['clients', 'samples', 'projects', 'finance', 'suppliers'].includes(activeTab) && (
