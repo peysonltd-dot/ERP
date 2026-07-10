@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   
-  <!-- Firebase Compat (相容模式)，解決模組載入衝突問題 -->
+  <!-- Firebase Compat (相容模式) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -16,7 +16,6 @@
 <body class="bg-gray-50">
   <div id="root"></div>
 
-  <!-- 主程式邏輯 -->
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
     import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
@@ -27,6 +26,25 @@
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
       Gift, Menu, UserCheck, Lock, Key, Cpu
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
+
+    // ==========================================
+    // --- Firebase 初始化 (Compat 模式) ---
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyC2urkxTWNz1EVy08MxyGfmAcPjGaU95CA",
+      authDomain: "peyson-erp.firebaseapp.com",
+      projectId: "peyson-erp",
+      storageBucket: "peyson-erp.firebasestorage.app",
+      messagingSenderId: "350290827046",
+      appId: "1:350290827046:web:f1ff892ac31e7f3912d3e7",
+      measurementId: "G-G9ZEWEXVBS"
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const db = firebase.firestore();
+    const storage = firebase.storage();
 
     // --- 分類常數 ---
     const categoryTree = {
@@ -42,26 +60,6 @@
       "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"],
       "高爾夫專區": [],
       "禮物包裝": []
-    };
-
-    // CSV 解析器
-    const parseCSV = (str) => {
-      const arr = [];
-      let quote = false;
-      let row = 0, col = 0;
-      for (let c = 0; c < str.length; c++) {
-        let cc = str[c], nc = str[c+1];
-        arr[row] = arr[row] || [];
-        arr[row][col] = arr[row][col] || '';
-        if (cc === '"' && quote && nc === '"') { arr[row][col] += cc; ++c; continue; }
-        if (cc === '"') { quote = !quote; continue; }
-        if (cc === ',' && !quote) { ++col; continue; }
-        if (cc === '\r' && nc === '\n' && !quote) { ++row; col = 0; ++c; continue; }
-        if (cc === '\n' && !quote) { ++row; col = 0; continue; }
-        if (cc === '\r' && !quote) { ++row; col = 0; continue; }
-        arr[row][col] += cc;
-      }
-      return arr;
     };
 
     // ==========================================
@@ -115,65 +113,9 @@
     };
 
     // ==========================================
-    // 元件 2：系統安全設定 (Local Storage 儲存金鑰)
+    // 元件 2：AI 流水線工作台 (接上 Firebase)
     // ==========================================
-    const SettingsView = ({ apiKey, setApiKey }) => {
-      const [tempKey, setTempKey] = useState(apiKey);
-      const [saved, setSaved] = useState(false);
-
-      const handleSave = () => {
-        localStorage.setItem('gemini_api_key', tempKey);
-        setApiKey(tempKey);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 3000);
-      };
-
-      return (
-        <div className="p-8 max-w-4xl animate-in fade-in mx-auto">
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-              <Settings className="w-6 h-6 text-blue-600"/> 系統安全設定
-            </h2>
-            <p className="text-gray-500 text-sm mt-1">為了保護資料安全，API Key 將安全地儲存在您目前的瀏覽器中，不會上傳至 GitHub。</p>
-          </div>
-
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-            <h3 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-4 mb-6 flex items-center gap-2">
-              <Key className="w-5 h-5 text-gray-400" /> Gemini AI 金鑰設定
-            </h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Google Gemini API Key</label>
-                <input 
-                  type="password" 
-                  value={tempKey} 
-                  onChange={e => setTempKey(e.target.value)} 
-                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono" 
-                  placeholder="請貼上以 AIza 或 AQ 開頭的金鑰..."
-                />
-                <p className="text-xs text-gray-400 mt-2">此金鑰僅存放於本地 (Local Storage)，關閉瀏覽器不會遺失，且絕對不會暴露在公開的網頁程式碼中。</p>
-              </div>
-
-              <div className="pt-4 flex items-center gap-4">
-                <button 
-                  onClick={handleSave} 
-                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md transition-colors flex items-center gap-2"
-                >
-                  <Save className="w-5 h-5" /> 儲存金鑰設定
-                </button>
-                {saved && <span className="text-green-600 font-bold flex items-center gap-1 animate-in fade-in"><CheckCircle2 className="w-5 h-5"/> 已安全儲存至本地瀏覽器！</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    // ==========================================
-    // 元件 3：AI 流水線工作台 (帶有重試機制與模型切換)
-    // ==========================================
-    const AIImportView = ({ user, loggedInEmployee, setActiveTab, apiKey }) => {
+    const AIImportView = () => {
       const [rawText, setRawText] = useState('');
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
@@ -182,13 +124,10 @@
       const availableOptions = ["雷射雕刻", "網版印刷", "彩色UV直印", "燙金/燙銀", "皮革壓印", "客製化外包裝盒"];
       
       const [specImageBase64, setSpecImageBase64] = useState(null);
-      const [productImages, setProductImages] = useState([]);
       const fileInputRef = useRef(null);
       const specInputRef = useRef(null);
 
-      // AI 模型選擇狀態
       const [aiModel, setAiModel] = useState('gemini-1.5-pro');
-
       const [aiResult, setAiResult] = useState(null);
       const [isGenerating, setIsGenerating] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
@@ -207,91 +146,83 @@
         }
       };
 
-      // 執行 AI 轉換 (帶有自動重試機制)
+      // ✅ 監聽雲端處理結果
+      useEffect(() => {
+        const unsubscribe = db.collection('products')
+          .where('status', '==', 'completed')
+          .orderBy('updatedAt', 'desc')
+          .limit(1)
+          .onSnapshot((snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+              if (change.type === "added" || change.type === "modified") {
+                const docData = change.doc.data();
+                if (docData.aiResult) {
+                   setAiResult(docData.aiResult);
+                   setSuccessMsg(`✨ 雲端處理完成：${docData.aiResult.title_zh}`);
+                   setTimeout(() => setSuccessMsg(''), 5000);
+                }
+              }
+            });
+          }, (error) => {
+            console.error("監聽資料庫失敗:", error);
+          });
+
+        return () => unsubscribe();
+      }, []);
+
+      // ✅ 將任務發送至 Firebase
       const handleGenerate = async () => {
-        if (!apiKey || apiKey.trim() === '') {
-          setError('請先至左側「系統設定」頁面填寫 Gemini API Key！');
-          return;
-        }
         if (!rawText.trim() && !specImageBase64) return setError('請貼上文字說明或上傳規格圖片！');
         
-        setError(''); setSuccessMsg(''); setIsGenerating(true); setAiResult(null);
+        setError(''); setSuccessMsg(''); setIsGenerating(true); 
 
-        const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
-        const prompt = `你是一個專業的 B2B 企業禮品採購專家，請根據提供的資料為「Peyson Ltd」編寫 Shopline 上架文案。
-        - 支援客製化：${customStr}。起訂量：${moq}。不可出現價格、人民幣字眼。剔除大陸用語。
-        - 【排版要求】：純文字輸出，僅使用換行符號與基本符號（如 - 或 •）。嚴禁任何 HTML 標籤。
-        - 結尾加上：「※ 企業採購如需索取樣品或正式報價，請聯繫專員。」
-        文字資料：${rawText || '無文字，請專注閱讀圖片規格'}
-        
-        必須回傳嚴格的 JSON 格式，包含以下 key: title_zh, title_en, summary_zh, summary_en, description_zh, description_en, seo_title_zh, seo_title_en, seo_desc_zh, seo_desc_en。`;
+        try {
+          let imageUrl = null;
 
-        const parts = [{ text: prompt }];
-        if (specImageBase64) {
-          parts.push({
-            inline_data: {
-              mime_type: specImageBase64.mimeType,
-              data: specImageBase64.data
+          if (specImageBase64) {
+            setSuccessMsg('上傳圖片至雲端...');
+            const byteCharacters = atob(specImageBase64.data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
             }
-          });
-        }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: specImageBase64.mimeType });
 
-        const payload = {
-          contents: [{ role: "user", parts: parts }]
-        };
-
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`;
-
-        let attempt = 0;
-        const maxRetries = 3; // 最多重試 3 次
-        let success = false;
-
-        while (attempt < maxRetries && !success) {
-          try {
-            const response = await fetch(apiUrl, { 
-              method: 'POST', 
-              headers: { 'Content-Type': 'application/json' }, 
-              body: JSON.stringify(payload) 
-            });
-            
-            if (!response.ok) {
-               // 如果是 503 錯誤，觸發自動重試機制
-               if (response.status === 503) {
-                  attempt++;
-                  if (attempt < maxRetries) {
-                    setSuccessMsg(`伺服器塞車中 (503)，系統將在 3 秒後進行第 ${attempt} 次重試...`);
-                    // 等待 3 秒
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    continue; // 跳回 while 迴圈開頭重新 fetch
-                  }
-               }
-               const errorData = await response.json();
-               throw new Error(`${response.status}: ${errorData.error?.message || '未知錯誤'}`);
-            }
-            
-            const data = await response.json();
-            let rawResultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            
-            if (!rawResultText) throw new Error("AI 回傳空資料");
-
-            // 清除 Markdown 標記以利 JSON 解析
-            rawResultText = rawResultText.replace(/^```json/mi, '').replace(/```$/m, '').trim();
-            
-            const parsedData = JSON.parse(rawResultText);
-            setAiResult(parsedData);
-            setSuccessMsg(''); // 清除重試訊息
-            success = true; // 成功跳出迴圈
-            
-          } catch (err) {
-            console.error("生成失敗:", err);
-            // 只有在真的失敗（或重試用盡）時才報錯
-            if (attempt >= maxRetries || !err.message.includes('503')) {
-                setError(`AI 轉換失敗: ${err.message}`);
-                break;
-            }
+            const fileName = `specs/${Date.now()}.jpg`;
+            const storageRef = storage.ref().child(fileName);
+            await storageRef.put(blob);
+            imageUrl = await storageRef.getDownloadURL();
           }
+
+          setSuccessMsg('建立雲端任務中...');
+
+          const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
+          await db.collection('products').add({
+            status: 'pending',
+            rawText: rawText,
+            imageUrl: imageUrl,
+            moq: moq,
+            category: `${mainCategory} - ${subCategory}`,
+            customOptions: customStr,
+            aiModel: aiModel,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          // 瞬間清空畫面
+          setRawText('');
+          setSpecImageBase64(null);
+          if (specInputRef.current) specInputRef.current.value = '';
+          
+          setIsGenerating(false);
+          setSuccessMsg('✅ 任務已送交雲端！您可以直接輸入下一筆商品。');
+          setTimeout(() => setSuccessMsg(''), 4000);
+
+        } catch (err) {
+          console.error("上傳失敗:", err);
+          setError(`任務建立失敗: ${err.message}`);
+          setIsGenerating(false);
         }
-        setIsGenerating(false);
       };
 
       const handlePreviewChange = (field, val) => { setAiResult({ ...aiResult, [field]: val }); };
@@ -299,17 +230,13 @@
       const handleSave = async () => {
         if (!aiResult) return;
         setIsSaving(true); setError(''); setSuccessMsg('');
-
         try {
-          // 因為這是純前端展示版本，我們將結果轉成 JSON 檔案下載來模擬儲存
           const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(aiResult, null, 2));
           const dlAnchorElem = document.createElement('a');
           dlAnchorElem.setAttribute("href", dataStr);
           dlAnchorElem.setAttribute("download", `Product_${new Date().getTime()}.json`);
           dlAnchorElem.click();
-
-          setSuccessMsg(`✅ 商品 [${aiResult.title_zh}] 已成功匯出 JSON！(模擬儲存)`);
-          
+          setSuccessMsg(`✅ 商品 [${aiResult.title_zh}] 已成功匯出！`);
         } catch (err) {
           setError(`儲存失敗: ${err.message}`);
         } finally {
@@ -324,33 +251,30 @@
               <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <Wand2 className="w-6 h-6 text-blue-600"/> AI 快速建檔流水線
               </h2>
-              <p className="text-gray-500 text-sm mt-1">左側貼上資料 &rarr; 點擊生成 &rarr; 右側預覽並存檔。</p>
+              <p className="text-gray-500 text-sm mt-1">資料送出後即可建立下一筆，系統將在背景自動處理。</p>
             </div>
-            
-            {/* 新增：大腦切換器 */}
             <div className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3">
                <Cpu className="w-5 h-5 text-gray-500" />
                <span className="text-sm font-bold text-gray-700">選擇 AI 大腦：</span>
                <select 
-                  value={aiModel} 
-                  onChange={(e) => setAiModel(e.target.value)}
-                  className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 p-1.5"
+                 value={aiModel} 
+                 onChange={(e) => setAiModel(e.target.value)}
+                 className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 p-1.5"
                >
-                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (推薦：最聰明穩定)</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash (速度快，但易塞車)</option>
-                  <option value="gemini-pro">Gemini 1.0 Pro (舊版備用線路)</option>
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                </select>
             </div>
           </div>
 
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-8 min-h-0">
+            {/* 左側輸入區 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 font-bold text-gray-700 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> 1. 輸入商品基礎資料</div>
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
-                <div><label className="block text-sm font-bold text-gray-700 mb-2">1688 原始說明 (文字/網址)</label><textarea value={rawText} onChange={e => setRawText(e.target.value)} className="w-full h-32 p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="將廠商的規格說明直接貼在這裡..."/></div>
+                <div><label className="block text-sm font-bold text-gray-700 mb-2">1688 原始說明 (文字)</label><textarea value={rawText} onChange={e => setRawText(e.target.value)} className="w-full h-32 p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="將廠商的規格說明直接貼在這裡..."/></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-bold text-gray-700 mb-2">規格截圖 (輔助 AI 辨識)</label><input type="file" ref={specInputRef} onChange={handleSpecImageUpload} accept="image/*" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/></div>
-                  <div><label className="block text-sm font-bold text-gray-700 mb-2">商品展示圖 (純前端無法上傳雲端)</label><input type="file" ref={fileInputRef} multiple accept="image/*" disabled className="w-full p-2 border border-gray-300 rounded-xl text-sm opacity-50 cursor-not-allowed"/></div>
+                  <div><label className="block text-sm font-bold text-gray-700 mb-2">規格截圖 (自動上傳雲端)</label><input type="file" ref={specInputRef} onChange={handleSpecImageUpload} accept="image/*" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                   <div className="space-y-4">
@@ -362,60 +286,36 @@
               </div>
               <div className="p-6 bg-gray-50 border-t border-gray-200">
                 {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2"><AlertCircle className="w-5 h-5 shrink-0"/> {error}</div>}
-                {successMsg && <div className="mb-4 p-3 bg-orange-100 text-orange-700 text-sm rounded-lg flex items-center gap-2 animate-pulse"><Loader2 className="w-5 h-5 animate-spin shrink-0"/> {successMsg}</div>}
-                <button onClick={handleGenerate} disabled={isGenerating || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all text-lg ${isGenerating ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                  {isGenerating && !successMsg ? <><Loader2 className="w-6 h-6 animate-spin"/> AI 正在讀取與翻譯中...</> : <><Wand2 className="w-6 h-6"/> 2. 點擊進行 AI 雙語轉換</>}
+                {successMsg && <div className="mb-4 p-3 bg-green-100 text-green-700 text-sm rounded-lg flex items-center gap-2"><CheckCircle2 className="w-5 h-5 shrink-0"/> {successMsg}</div>}
+                <button onClick={handleGenerate} disabled={isGenerating} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all text-lg ${isGenerating ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                  {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> 送交雲端中...</> : <><Cloud className="w-6 h-6"/> 2. 送出處理 (背景執行)</>}
                 </button>
               </div>
             </div>
 
+            {/* 右側預覽區 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
-               <div className="bg-gray-800 px-6 py-4 border-b border-gray-900 font-bold text-white flex justify-between items-center"><span className="flex items-center gap-2"><Eye className="w-5 h-5 text-green-400"/> 3. 預覽與確認</span></div>
-               
+               <div className="bg-gray-800 px-6 py-4 border-b border-gray-900 font-bold text-white flex justify-between items-center"><span className="flex items-center gap-2"><Eye className="w-5 h-5 text-green-400"/> 3. 最新處理完成預覽</span></div>
                <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 relative">
-                 {!aiResult && !isGenerating && (
+                 {!aiResult && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
                        <FileText className="w-16 h-16 mb-4 opacity-20" />
-                       <p>請先在左側輸入資料並點擊轉換</p>
+                       <p>等待雲端處理完成中...</p>
                     </div>
                  )}
-                 {isGenerating && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-10">
-                       <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
-                       <p className="text-blue-600 font-bold animate-pulse">Gemini AI 正在為您排版與翻譯...</p>
-                    </div>
-                 )}
-                 
-                 {aiResult && !isGenerating && (
+                 {aiResult && (
                     <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 pb-20">
                       <div className="bg-white p-5 rounded-xl border border-blue-100 shadow-sm space-y-4">
                         <h3 className="font-bold text-blue-800 border-b border-blue-50 pb-2">🇹🇼 繁體中文版</h3>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">商品名稱</label><input type="text" value={aiResult.title_zh} onChange={e => handlePreviewChange('title_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm font-bold text-gray-900" /></div>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">商品摘要</label><textarea value={aiResult.summary_zh} onChange={e => handlePreviewChange('summary_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm" rows="2" /></div>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">詳細描述 (純文字)</label><textarea value={aiResult.description_zh} onChange={e => handlePreviewChange('description_zh', e.target.value)} className="w-full p-3 border border-gray-200 rounded text-sm leading-relaxed min-h-[150px]" /></div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO 標題</label><textarea value={aiResult.seo_title_zh} onChange={e => handlePreviewChange('seo_title_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
-                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO 簡介</label><textarea value={aiResult.seo_desc_zh} onChange={e => handlePreviewChange('seo_desc_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-5 rounded-xl border border-orange-100 shadow-sm space-y-4">
-                        <h3 className="font-bold text-orange-800 border-b border-orange-50 pb-2">🇺🇸 英文版 (English)</h3>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Product Name</label><input type="text" value={aiResult.title_en} onChange={e => handlePreviewChange('title_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm font-bold text-gray-900" /></div>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Product Summary</label><textarea value={aiResult.summary_en} onChange={e => handlePreviewChange('summary_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm" rows="2" /></div>
-                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Description (Text)</label><textarea value={aiResult.description_en} onChange={e => handlePreviewChange('description_en', e.target.value)} className="w-full p-3 border border-gray-200 rounded text-sm leading-relaxed min-h-[150px]" /></div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO Title</label><textarea value={aiResult.seo_title_en} onChange={e => handlePreviewChange('seo_title_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
-                          <div><label className="block text-xs font-bold text-gray-500 mb-1">SEO Desc</label><textarea value={aiResult.seo_desc_en} onChange={e => handlePreviewChange('seo_desc_en', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-xs" rows="2"/></div>
-                        </div>
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">商品名稱</label><input type="text" value={aiResult.title_zh || ''} onChange={e => handlePreviewChange('title_zh', e.target.value)} className="w-full p-2 border border-gray-200 rounded text-sm font-bold text-gray-900" /></div>
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">詳細描述</label><textarea value={aiResult.description_zh || ''} onChange={e => handlePreviewChange('description_zh', e.target.value)} className="w-full p-3 border border-gray-200 rounded text-sm min-h-[150px]" /></div>
                       </div>
                     </div>
                  )}
                </div>
-
                <div className="p-6 bg-white border-t border-gray-200 absolute bottom-0 left-0 right-0">
-                  <button onClick={handleSave} disabled={!aiResult || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all text-lg ${!aiResult ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : isSaving ? 'bg-green-400 text-white cursor-wait' : 'bg-green-600 hover:bg-green-500 text-white'}`}>
-                    {isSaving ? <><Loader2 className="w-6 h-6 animate-spin"/> 資料與圖片儲存中...</> : <><Save className="w-6 h-6"/> 確認無誤，匯出資料</>}
+                  <button onClick={handleSave} disabled={!aiResult || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all text-lg ${!aiResult ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}>
+                    <Save className="w-6 h-6"/> 確認無誤，匯出資料
                   </button>
                </div>
             </div>
@@ -427,60 +327,22 @@
     function App() {
       const [isLoggedIn, setIsLoggedIn] = useState(false);
       const [activeTab, setActiveTab] = useState('ai-import');
-      const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
-      
       const loggedInEmployee = { username: '最高管理員', role: 'Admin' };
-      const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
       if (!isLoggedIn) {
         return <SimpleLogin onLogin={() => setIsLoggedIn(true)} />;
       }
 
-      const Sidebar = () => (
-        <div className={`bg-gray-900 text-white min-h-screen flex flex-col shrink-0 transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
-          <div className={`p-6 border-b border-gray-800 flex items-center ${isSidebarOpen ? 'justify-between' : 'justify-center'}`}>
-            {isSidebarOpen && <h1 className="text-2xl font-bold tracking-wider truncate">PEYSON<span className="text-blue-500">.ERP</span></h1>}
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="text-gray-400 hover:text-white transition-colors" title={isSidebarOpen ? "收起選單" : "展開選單"}>
-              <Menu className="w-6 h-6" />
-            </button>
-          </div>
-          <nav className="flex-1 py-4 overflow-y-auto overflow-x-hidden">
-            {isSidebarOpen ? <div className="px-6 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider truncate">系統核心</div> : <div className="w-8 border-t border-gray-700 mx-auto my-3"></div>}
-            {[
-              { id: 'dashboard', icon: LayoutDashboard, label: '系統總覽' },
-              { id: 'ai-import', icon: Wand2, label: 'AI 流水線' },
-              { id: 'settings', icon: Settings, label: '⚙️ 系統設定' }, 
-            ].map(item => (
-              <button key={item.id} onClick={() => setActiveTab(item.id)} title={!isSidebarOpen ? item.label : ''} className={`w-full flex items-center py-3 text-sm transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-white border-r-4 border-transparent'} ${isSidebarOpen ? 'px-6 gap-3' : 'justify-center px-0'}`}>
-                <item.icon className="w-5 h-5 shrink-0" />
-                {isSidebarOpen && <span className="flex-1 text-left truncate">{item.label}</span>}
-              </button>
-            ))}
-          </nav>
-        </div>
-      );
-
       return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
-          <Sidebar />
+          <div className="bg-gray-900 text-white w-64 min-h-screen flex flex-col shrink-0">
+            <div className="p-6 border-b border-gray-800"><h1 className="text-2xl font-bold tracking-wider">PEYSON<span className="text-blue-500">.ERP</span></h1></div>
+            <nav className="flex-1 py-4">
+              <button onClick={() => setActiveTab('ai-import')} className={`w-full flex items-center py-3 px-6 gap-3 text-sm transition-colors ${activeTab === 'ai-import' ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400'}`}><Wand2 className="w-5 h-5 shrink-0" /> AI 流水線</button>
+            </nav>
+          </div>
           <main className="flex-1 overflow-y-auto relative">
-            {activeTab === 'dashboard' && (
-              <div className="p-8 space-y-6 max-w-6xl animate-in fade-in">
-                <h2 className="text-2xl font-bold text-gray-800">早安，{loggedInEmployee.username}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
-                  <div onClick={() => setActiveTab('ai-import')} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group">
-                    <div className="bg-purple-500 w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-sm group-hover:scale-110 transition-transform"><Wand2 className="w-6 h-6" /></div>
-                    <div><p className="text-gray-500 text-sm">批次開發助手</p><h3 className="text-2xl font-bold text-gray-900">前往作業</h3></div>
-                  </div>
-                   <div onClick={() => setActiveTab('settings')} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer group">
-                    <div className="bg-gray-500 w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-sm group-hover:scale-110 transition-transform"><Settings className="w-6 h-6" /></div>
-                    <div><p className="text-gray-500 text-sm">API 金鑰設定</p><h3 className="text-2xl font-bold text-gray-900">{apiKey ? '已設定' : '未設定'}</h3></div>
-                  </div>
-                </div>
-              </div>
-            )}
-            {activeTab === 'settings' && <SettingsView apiKey={apiKey} setApiKey={setApiKey} />}
-            {activeTab === 'ai-import' && <AIImportView apiKey={apiKey} />}
+            {activeTab === 'ai-import' && <AIImportView />}
           </main>
         </div>
       );
