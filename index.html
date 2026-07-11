@@ -28,7 +28,7 @@
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
-    // --- Firebase 初始化 (Compat 模式) ---
+    // --- Firebase 初始化 ---
     // ==========================================
     const firebaseConfig = {
       apiKey: "AIzaSyC2urkxTWNz1EVy08MxyGfmAcPjGaU95CA",
@@ -45,6 +45,7 @@
     }
     const db = firebase.firestore();
     const storage = firebase.storage();
+    const auth = firebase.auth();
 
     // --- 分類常數 ---
     const categoryTree = {
@@ -63,19 +64,26 @@
     };
 
     // ==========================================
-    // 元件 1：簡易安全登入畫面
+    // 元件 1：Firebase 安全登入畫面
     // ==========================================
-    const SimpleLogin = ({ onLogin }) => {
-      const [username, setUsername] = useState('');
+    const SimpleLogin = () => {
+      const [email, setEmail] = useState('');
       const [password, setPassword] = useState('');
       const [error, setError] = useState('');
+      const [isLoading, setIsLoading] = useState(false);
 
-      const handleSubmit = (e) => {
+      const handleSubmit = async (e) => {
         e.preventDefault();
-        if (username === '93605882' && password === '05882') {
-          onLogin();
-        } else {
-          setError('帳號或密碼錯誤！請聯絡管理員。');
+        setError('');
+        setIsLoading(true);
+        try {
+          // 呼叫 Firebase 進行真實登入驗證
+          await auth.signInWithEmailAndPassword(email, password);
+        } catch (err) {
+          console.error("登入失敗:", err);
+          setError('登入失敗：帳號或密碼錯誤。');
+        } finally {
+          setIsLoading(false);
         }
       };
 
@@ -87,14 +95,14 @@
                 <Shield className="w-8 h-8 text-white" />
               </div>
               <h1 className="text-2xl font-bold tracking-wider text-gray-900">PEYSON<span className="text-blue-500">.ERP</span></h1>
-              <p className="text-gray-500 text-sm mt-2">請輸入企業專屬代碼以登入系統</p>
+              <p className="text-gray-500 text-sm mt-2">系統已啟用 Firebase 安全加密</p>
             </div>
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">企業帳號</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">企業信箱帳號</label>
                 <div className="relative">
                   <User className="w-5 h-5 absolute left-3 top-2.5 text-gray-400" />
-                  <input type="text" required value={username} onChange={e => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請輸入帳號" />
+                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" placeholder="例如：admin@peyson.com" />
                 </div>
               </div>
               <div>
@@ -105,7 +113,9 @@
                 </div>
               </div>
               {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0"/> {error}</div>}
-              <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md transition-all flex justify-center items-center gap-2">登入系統</button>
+              <button type="submit" disabled={isLoading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md transition-all flex justify-center items-center gap-2 disabled:bg-gray-400">
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : '安全登入系統'}
+              </button>
             </form>
           </div>
         </div>
@@ -113,7 +123,7 @@
     };
 
     // ==========================================
-    // 元件 2：AI 流水線工作台 (接上 Firebase)
+    // 元件 2：AI 流水線工作台
     // ==========================================
     const AIImportView = () => {
       const [rawText, setRawText] = useState('');
@@ -146,7 +156,7 @@
         }
       };
 
-      // ✅ 監聽雲端處理結果
+      // 監聽雲端處理結果
       useEffect(() => {
         const unsubscribe = db.collection('products')
           .where('status', '==', 'completed')
@@ -170,7 +180,6 @@
         return () => unsubscribe();
       }, []);
 
-      // ✅ 將任務發送至 Firebase
       const handleGenerate = async () => {
         if (!rawText.trim() && !specImageBase64) return setError('請貼上文字說明或上傳規格圖片！');
         
@@ -209,7 +218,6 @@
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           });
 
-          // 瞬間清空畫面
           setRawText('');
           setSpecImageBase64(null);
           if (specInputRef.current) specInputRef.current.value = '';
@@ -325,20 +333,59 @@
     };
 
     function App() {
-      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      // ✅ 將 isLoggedIn 初始值設為 null，代表正在驗證中
+      const [isLoggedIn, setIsLoggedIn] = useState(null); 
       const [activeTab, setActiveTab] = useState('ai-import');
-      const loggedInEmployee = { username: '最高管理員', role: 'Admin' };
+      const [currentUser, setCurrentUser] = useState(null);
+
+      // ✅ 監聽 Firebase 的登入狀態，解決重新整理跳回登入頁的問題
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          if (user) {
+            setIsLoggedIn(true);
+            setCurrentUser(user);
+          } else {
+            setIsLoggedIn(false);
+            setCurrentUser(null);
+          }
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // 執行登出
+      const handleLogout = () => {
+        auth.signOut();
+      };
+
+      // ✅ 在驗證結果出來前，顯示載入畫面避免閃爍
+      if (isLoggedIn === null) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+            <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+            <p className="text-gray-500 font-medium">系統安全驗證中...</p>
+          </div>
+        );
+      }
 
       if (!isLoggedIn) {
-        return <SimpleLogin onLogin={() => setIsLoggedIn(true)} />;
+        return <SimpleLogin />;
       }
 
       return (
         <div className="flex min-h-screen bg-gray-50 font-sans">
           <div className="bg-gray-900 text-white w-64 min-h-screen flex flex-col shrink-0">
             <div className="p-6 border-b border-gray-800"><h1 className="text-2xl font-bold tracking-wider">PEYSON<span className="text-blue-500">.ERP</span></h1></div>
-            <nav className="flex-1 py-4">
-              <button onClick={() => setActiveTab('ai-import')} className={`w-full flex items-center py-3 px-6 gap-3 text-sm transition-colors ${activeTab === 'ai-import' ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400'}`}><Wand2 className="w-5 h-5 shrink-0" /> AI 流水線</button>
+            <nav className="flex-1 py-4 flex flex-col justify-between">
+              <div>
+                <button onClick={() => setActiveTab('ai-import')} className={`w-full flex items-center py-3 px-6 gap-3 text-sm transition-colors ${activeTab === 'ai-import' ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400'}`}><Wand2 className="w-5 h-5 shrink-0" /> AI 流水線</button>
+              </div>
+              
+              {/* 登出按鈕 */}
+              <div className="px-4 pb-4">
+                <button onClick={handleLogout} className="w-full flex items-center justify-center py-2.5 px-4 gap-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <LogOut className="w-4 h-4" /> 登出系統
+                </button>
+              </div>
             </nav>
           </div>
           <main className="flex-1 overflow-y-auto relative">
