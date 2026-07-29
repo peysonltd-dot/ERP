@@ -25,7 +25,7 @@
       AlertCircle, Loader2, Building2, ShoppingCart, Trash2, Cloud, Filter, Users, LogOut, 
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
-      Gift, Menu, UserCheck, Lock, Key, Cpu
+      Gift, Menu, UserCheck, Lock, Key, Cpu, Languages
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
@@ -48,7 +48,8 @@
     const storage = firebase.storage();
     const auth = firebase.auth();
 
-    // --- 分類常數 ---
+    // --- SHOPLINE 分類與商品欄位常數 ---
+    const SHOPLINE_ROOT_CATEGORY = "所有禮品";
     const categoryTree = {
       "餐廚用品": ["開瓶器", "杯墊", "冰塊", "環保餐具"],
       "水瓶/杯子": ["環保杯", "保溫杯", "馬克杯", "水壺", "酒杯/茶杯"],
@@ -59,8 +60,14 @@
       "電子產品/周邊": ["充電線", "行動電源", "無線充電盤", "手機背繩", "藍芽音響", "卡套", "其他3C", "周邊小物"],
       "生活小物": ["拼圖", "鑰匙圈", "手機架", "捲尺"],
       "ESG環保禮品": [],
-      "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"]
+      "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"],
+      "高爾夫專區": [],
+      "禮物包裝": []
     };
+    const customizationOptions = ["彩色印刷", "單色印刷", "壓印燙金", "壓印", "雷射雕刻"];
+    const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
+    const ONSITE_COPY_ZH = "※ 此商品可提供活動現場客製服務，歡迎洽詢沛森顧問有限公司。";
+    const ONSITE_COPY_EN = "On-site event personalization is available for this product. Please contact Peyson Consulting Co., Ltd. for details.";
 
     const shoplineHeadersEn = [
       "Product Handle*", "Product Name(English)*", "Product Name(Chinese)*", "Product Summary(English)", "Product Summary(Chinese)",
@@ -94,7 +101,36 @@
     const splitLines = (value) => String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
     const splitComma = (value) => String(value || '').split(/[,，\n]/).map(item => item.trim()).filter(Boolean);
     const joinLines = (value) => Array.isArray(value) ? value.join('\n') : '';
-    const categoryPath = (main, sub) => [main, sub].filter(Boolean).join('>');
+    const categoryPath = (main, sub) => [SHOPLINE_ROOT_CATEGORY, main, sub].filter(Boolean).join('>');
+    const parseCategoryParts = (rawValue) => {
+      const parts = String(rawValue || '').split('>').map(item => item.trim()).filter(Boolean);
+      if (parts[0] === SHOPLINE_ROOT_CATEGORY) parts.shift();
+      return { main: parts[0] || '', sub: parts[1] || '' };
+    };
+    const isValidCategory = (main, sub) => {
+      if (!Object.prototype.hasOwnProperty.call(categoryTree, main)) return false;
+      const children = categoryTree[main];
+      return children.length === 0 ? !sub : children.includes(sub);
+    };
+    const stripOnsiteCopy = (value, copy) => String(value || '')
+      .replace(copy, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    const applyOnsiteCopy = (value, onsiteCustomization, language) => {
+      const copy = language === 'en' ? ONSITE_COPY_EN : ONSITE_COPY_ZH;
+      const cleaned = stripOnsiteCopy(value, copy);
+      return onsiteCustomization === 'Y' ? [cleaned, copy].filter(Boolean).join('\n\n') : cleaned;
+    };
+    const normalizeCustomizationCraft = (value) => {
+      const raw = String(value || '').trim();
+      if (customizationOptions.includes(raw)) return raw;
+      if (/UV|彩色/.test(raw)) return '彩色印刷';
+      if (/網版|單色/.test(raw)) return '單色印刷';
+      if (/燙金|燙銀/.test(raw)) return '壓印燙金';
+      if (/壓印/.test(raw)) return '壓印';
+      if (/雷射|雷雕/.test(raw)) return '雷射雕刻';
+      return '雷射雕刻';
+    };
     const buildProductHandle = (product = {}) => {
       const data = product.finalData || product.aiResult || {};
       const existing = data.product_handle || product.productHandle;
@@ -109,8 +145,10 @@
       .map(item => `・${item}`)
       .join('\n\n');
 
-    const getShoplineCategory = (product = {}, data = {}) =>
-      String(product.categoryPath || data.category || '').replace(/\s*>\s*/g, '>').trim();
+    const getShoplineCategory = (product = {}, data = {}) => {
+      const { main, sub } = getCategoryParts(product, data);
+      return isValidCategory(main, sub) ? categoryPath(main, sub) : '';
+    };
 
     const getExportIssues = (product = {}) => {
       const data = getWorkingData(product);
@@ -124,12 +162,7 @@
       if (!product.finalData) issues.push('尚未保存人工確認版本');
       if (!handle) issues.push('缺少商品編號');
       if (!String(data.title_zh || '').trim() && !String(data.title_en || '').trim()) issues.push('缺少商品名稱');
-      if (!category) {
-        issues.push('缺少網店分類');
-      } else {
-        const [main, sub = ''] = category.split('>');
-        if (!categoryTree[main] || (sub && !categoryTree[main].includes(sub))) issues.push('分類不在 ERP 分類清單');
-      }
+      if (!category) issues.push('分類名稱或層級不符合 SHOPLINE 官網');
       if (!imageUrl) {
         issues.push('缺少商品主圖網址');
       } else if (!/^https?:\/\/\S+$/i.test(imageUrl)) {
@@ -199,12 +232,9 @@
       }
 
       const raw = product.categoryPath || productData.category || product.category || '';
-      const separator = raw.includes('>') ? '>' : ' - ';
-      const [main = Object.keys(categoryTree)[0], sub = ''] = raw.split(separator);
-      return {
-        main: categoryTree[main] ? main : Object.keys(categoryTree)[0],
-        sub
-      };
+      if (raw.includes('>')) return parseCategoryParts(raw);
+      const [main = '', sub = ''] = String(raw).split(' - ').map(item => item.trim());
+      return { main, sub };
     };
 
     const getWorkingData = (product = {}) => cloneData(product.finalData || product.aiResult || {});
@@ -291,8 +321,8 @@
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
       const [subCategory, setSubCategory] = useState(categoryTree[Object.keys(categoryTree)[0]][0] || '');
-      const [customOptions, setCustomOptions] = useState(['雷射雕刻']);
-      const availableOptions = ["雷射雕刻", "網版印刷", "彩色UV直印", "燙金/燙銀", "皮革壓印", "客製化外包裝盒"];
+      const [customizationCraft, setCustomizationCraft] = useState('雷射雕刻');
+      const [onsiteCustomization, setOnsiteCustomization] = useState('N');
       
       const [specImageBase64, setSpecImageBase64] = useState(null);
       const specInputRef = useRef(null);
@@ -307,7 +337,6 @@
       const [error, setError] = useState('');
       const [successMsg, setSuccessMsg] = useState('');
 
-      const handleOptionToggle = (opt) => setCustomOptions(prev => prev.includes(opt) ? prev.filter(o => o !== opt) : [...prev, opt]);
       const handleMainCategoryChange = (e) => { const selectedMain = e.target.value; setMainCategory(selectedMain); setSubCategory(categoryTree[selectedMain][0] || ''); };
 
       const handleSpecImageUpload = (e) => {
@@ -376,7 +405,6 @@
 
           setSuccessMsg('建立雲端任務中...');
 
-          const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
           const selectedCategoryPath = categoryPath(mainCategory, subCategory);
           const docRef = await db.collection('products').add({
             status: 'pending',
@@ -389,8 +417,10 @@
             categoryMain: mainCategory,
             categorySub: subCategory,
             categoryPath: selectedCategoryPath,
-            customOptions: customStr,
-            customOptionList: customOptions,
+            customOptions: customizationCraft,
+            customOptionList: [customizationCraft],
+            customizationCraft,
+            onsiteCustomization,
             aiModel: aiModel,
             createdBy: {
               uid: auth.currentUser?.uid || '',
@@ -426,7 +456,11 @@
             ...cloneData(aiResult),
             category: categoryPath(mainCategory, subCategory),
             target_moq: Number(moq) || 0,
-            requested_customization: customOptions.join('、'),
+            requested_customization: customizationCraft,
+            customization_craft: customizationCraft,
+            onsite_customization: onsiteCustomization,
+            description_zh: applyOnsiteCopy(aiResult.description_zh, onsiteCustomization, 'zh'),
+            description_en: applyOnsiteCopy(aiResult.description_en, onsiteCustomization, 'en'),
             product_handle: buildProductHandle({ id: activeJobId }),
             main_image_url: '',
             online_store_status: 'Y'
@@ -440,8 +474,10 @@
             categorySub: subCategory,
             categoryPath: categoryPath(mainCategory, subCategory),
             moq: Number(moq) || 0,
-            customOptions: customOptions.join('、'),
-            customOptionList: customOptions,
+            customOptions: customizationCraft,
+            customOptionList: [customizationCraft],
+            customizationCraft,
+            onsiteCustomization,
             savedBy: {
               uid: auth.currentUser?.uid || '',
               email: auth.currentUser?.email || ''
@@ -493,10 +529,33 @@
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                   <div className="space-y-4">
-                    <div><label className="block text-sm font-bold text-gray-700 mb-2">上架分類</label><select value={mainCategory} onChange={handleMainCategoryChange} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white mb-2">{Object.keys(categoryTree).map(m => <option key={m} value={m}>{m}</option>)}</select><select value={subCategory} onChange={e => setSubCategory(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white" disabled={!categoryTree[mainCategory] || categoryTree[mainCategory].length===0}>{categoryTree[mainCategory]?.map(s => <option key={s} value={s}>{s}</option>) || <option>無次分類</option>}</select></div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">SHOPLINE 上架分類</label>
+                      <div className="px-3 py-2 mb-2 rounded-lg bg-gray-100 text-xs font-bold text-gray-600">{SHOPLINE_ROOT_CATEGORY}</div>
+                      <select value={mainCategory} onChange={handleMainCategoryChange} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white mb-2">{Object.keys(categoryTree).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                      <select value={subCategory} onChange={e => setSubCategory(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white" disabled={!categoryTree[mainCategory] || categoryTree[mainCategory].length===0}>
+                        {categoryTree[mainCategory]?.length > 0 ? categoryTree[mainCategory].map(s => <option key={s} value={s}>{s}</option>) : <option value="">無第三層分類</option>}
+                      </select>
+                      <p className="mt-2 text-xs text-blue-600">匯出路徑：{categoryPath(mainCategory, subCategory)}</p>
+                    </div>
                     <div><label className="block text-sm font-bold text-gray-700 mb-2">企業起訂量 (MOQ)</label><input value={moq} onChange={e => setMoq(e.target.value)} type="number" className="w-full p-2 border border-gray-300 rounded-xl text-sm" /></div>
                   </div>
-                  <div><label className="block text-sm font-bold text-gray-700 mb-2">支援客製化工藝</label><div className="flex flex-wrap gap-2">{availableOptions.map(opt => <button key={opt} onClick={() => handleOptionToggle(opt)} className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${customOptions.includes(opt) ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>{opt}</button>)}</div></div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">客製工藝</label>
+                      <select value={customizationCraft} onChange={e => setCustomizationCraft(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
+                        {customizationOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">活動現場客製</label>
+                      <select value={onsiteCustomization} onChange={e => setOnsiteCustomization(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
+                        <option value="N">不可</option>
+                        <option value="Y">可</option>
+                      </select>
+                      {onsiteCustomization === 'Y' && <p className="mt-2 text-xs text-green-700">儲存時會在中英文商品描述下方加入現場客製說明。</p>}
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="p-6 bg-gray-50 border-t border-gray-200">
@@ -546,7 +605,11 @@
 
     const ProductEditor = ({ product, onBack }) => {
       const baseData = getWorkingData(product);
-      const initialCategory = getCategoryParts(product, baseData);
+      const parsedCategory = getCategoryParts(product, baseData);
+      const fallbackMain = Object.keys(categoryTree)[0];
+      const initialCategory = isValidCategory(parsedCategory.main, parsedCategory.sub)
+        ? parsedCategory
+        : { main: fallbackMain, sub: categoryTree[fallbackMain][0] || '' };
       const [formData, setFormData] = useState({
         title_zh: baseData.title_zh || '',
         title_en: baseData.title_en || '',
@@ -565,7 +628,8 @@
         colors: joinLines(baseData.extracted?.colors),
         packaging: baseData.extracted?.packaging || '',
         target_moq: baseData.target_moq ?? product.moq ?? '',
-        requested_customization: baseData.requested_customization || product.customOptions || '',
+        requested_customization: normalizeCustomizationCraft(baseData.customization_craft || baseData.requested_customization || product.customizationCraft || product.customOptions),
+        onsite_customization: baseData.onsite_customization || product.onsiteCustomization || 'N',
         product_handle: buildProductHandle(product),
         main_image_url: baseData.main_image_url || '',
         online_store_status: baseData.online_store_status === 'N' ? 'N' : 'Y',
@@ -573,12 +637,70 @@
         categorySub: initialCategory.sub
       });
       const [isSaving, setIsSaving] = useState(false);
+      const [isSyncingEnglish, setIsSyncingEnglish] = useState(false);
       const [message, setMessage] = useState('');
       const [error, setError] = useState('');
 
       const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
       const handleCategoryMain = (main) => {
         setFormData(prev => ({ ...prev, categoryMain: main, categorySub: categoryTree[main]?.[0] || '' }));
+      };
+      const handleOnsiteCustomization = (value) => {
+        setFormData(prev => ({
+          ...prev,
+          onsite_customization: value,
+          description_zh: applyOnsiteCopy(prev.description_zh, value, 'zh'),
+          description_en: applyOnsiteCopy(prev.description_en, value, 'en')
+        }));
+      };
+
+      const handleEnglishSync = async () => {
+        if (!formData.title_zh.trim() && !formData.description_zh.trim() && !formData.highlights_zh.trim()) {
+          return setError('請先填寫繁中商品名稱或商品文案，再執行英文同步。');
+        }
+
+        setIsSyncingEnglish(true);
+        setError('');
+        setMessage('');
+
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error('登入狀態已失效，請重新登入。');
+
+          const response = await fetch(`${BACKEND_URL}/api/sync-english`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              title_zh: formData.title_zh.trim(),
+              product_highlights_zh: splitLines(formData.highlights_zh),
+              description_zh: applyOnsiteCopy(formData.description_zh, formData.onsite_customization, 'zh'),
+              seo_title_zh: formData.seo_title_zh.trim(),
+              seo_description_zh: formData.seo_description_zh.trim()
+            })
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || `英文同步失敗（HTTP ${response.status}）`);
+
+          const translated = payload.result || {};
+          setFormData(prev => ({
+            ...prev,
+            title_en: translated.title_en || '',
+            highlights_en: joinLines(translated.product_highlights_en),
+            description_zh: applyOnsiteCopy(prev.description_zh, prev.onsite_customization, 'zh'),
+            description_en: applyOnsiteCopy(translated.description_en, prev.onsite_customization, 'en'),
+            seo_title_en: translated.seo_title_en || '',
+            seo_description_en: translated.seo_description_en || ''
+          }));
+          setMessage('✅ 英文內容已依目前繁中文案同步，請確認後按「儲存修改」。');
+        } catch (syncError) {
+          setError(`英文同步失敗：${syncError.message}`);
+        } finally {
+          setIsSyncingEnglish(false);
+        }
       };
 
       const handleSave = async () => {
@@ -602,8 +724,8 @@
             ...currentData,
             title_zh: formData.title_zh.trim(),
             title_en: formData.title_en.trim(),
-            description_zh: formData.description_zh.trim(),
-            description_en: formData.description_en.trim(),
+            description_zh: applyOnsiteCopy(formData.description_zh, formData.onsite_customization, 'zh'),
+            description_en: applyOnsiteCopy(formData.description_en, formData.onsite_customization, 'en'),
             product_highlights_zh: splitLines(formData.highlights_zh),
             product_highlights_en: splitLines(formData.highlights_en),
             seo_title_zh: formData.seo_title_zh.trim(),
@@ -622,6 +744,8 @@
             category: categoryPath(formData.categoryMain, formData.categorySub),
             target_moq: Number(formData.target_moq) || 0,
             requested_customization: formData.requested_customization.trim(),
+            customization_craft: formData.requested_customization.trim(),
+            onsite_customization: formData.onsite_customization,
             product_handle: formData.product_handle.trim(),
             main_image_url: formData.main_image_url.trim(),
             online_store_status: formData.online_store_status
@@ -637,6 +761,9 @@
             productHandle: formData.product_handle.trim(),
             moq: Number(formData.target_moq) || 0,
             customOptions: formData.requested_customization.trim(),
+            customOptionList: [formData.requested_customization.trim()],
+            customizationCraft: formData.requested_customization.trim(),
+            onsiteCustomization: formData.onsite_customization,
             savedBy: {
               uid: auth.currentUser?.uid || '',
               email: auth.currentUser?.email || ''
@@ -679,13 +806,31 @@
               <h3 className="font-bold text-gray-800 border-b pb-3">基本資料與分類</h3>
               <div><label className={labelClass}>商品名稱（繁中）</label><input className={fieldClass} value={formData.title_zh} onChange={e => updateField('title_zh', e.target.value)}/></div>
               <div><label className={labelClass}>商品名稱（英文）</label><input className={fieldClass} value={formData.title_en} onChange={e => updateField('title_en', e.target.value)}/></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className={labelClass}>主分類</label><select className={fieldClass} value={formData.categoryMain} onChange={e => handleCategoryMain(e.target.value)}>{Object.keys(categoryTree).map(item => <option key={item}>{item}</option>)}</select></div>
-                <div><label className={labelClass}>次分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!categoryTree[formData.categoryMain]?.length}>{categoryTree[formData.categoryMain]?.map(item => <option key={item}>{item}</option>) || <option value="">無次分類</option>}</select></div>
+              <div>
+                <label className={labelClass}>第一層分類（固定）</label>
+                <div className="w-full p-2.5 bg-gray-100 border border-gray-200 rounded-lg text-sm font-bold text-gray-600">{SHOPLINE_ROOT_CATEGORY}</div>
               </div>
               <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelClass}>第二層分類</label><select className={fieldClass} value={formData.categoryMain} onChange={e => handleCategoryMain(e.target.value)}>{Object.keys(categoryTree).map(item => <option key={item}>{item}</option>)}</select></div>
+                <div><label className={labelClass}>第三層分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!categoryTree[formData.categoryMain]?.length}>{categoryTree[formData.categoryMain]?.length > 0 ? categoryTree[formData.categoryMain].map(item => <option key={item}>{item}</option>) : <option value="">無第三層分類</option>}</select></div>
+              </div>
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">SHOPLINE 匯出路徑：{categoryPath(formData.categoryMain, formData.categorySub)}</p>
+              <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
-                <div><label className={labelClass}>客製工藝</label><input className={fieldClass} value={formData.requested_customization} onChange={e => updateField('requested_customization', e.target.value)}/></div>
+                <div>
+                  <label className={labelClass}>客製工藝</label>
+                  <select className={fieldClass} value={formData.requested_customization} onChange={e => updateField('requested_customization', e.target.value)}>
+                    {customizationOptions.map(option => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>活動現場客製</label>
+                <select className={fieldClass} value={formData.onsite_customization} onChange={e => handleOnsiteCustomization(e.target.value)}>
+                  <option value="N">不可</option>
+                  <option value="Y">可</option>
+                </select>
+                {formData.onsite_customization === 'Y' && <p className="mt-2 text-xs text-green-700">中英文商品描述下方已加入活動現場客製說明。</p>}
               </div>
             </section>
 
@@ -714,7 +859,16 @@
             </section>
 
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
-              <h3 className="font-bold text-gray-800 border-b pb-3">商品文案</h3>
+              <div className="border-b pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-gray-800">商品文案</h3>
+                  <p className="text-xs text-gray-400 mt-1">修改繁中文案後，按「英文同步」會同步英文名稱、特色、描述與 SEO。</p>
+                </div>
+                <button onClick={handleEnglishSync} disabled={isSyncingEnglish} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white text-sm font-bold">
+                  {isSyncingEnglish ? <Loader2 className="w-4 h-4 animate-spin"/> : <Languages className="w-4 h-4"/>}
+                  {isSyncingEnglish ? '同步中…' : '英文同步'}
+                </button>
+              </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div><label className={labelClass}>商品特色（繁中，每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_zh} onChange={e => updateField('highlights_zh', e.target.value)}/></div>
                 <div><label className={labelClass}>Product Highlights（每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_en} onChange={e => updateField('highlights_en', e.target.value)}/></div>
@@ -970,7 +1124,7 @@
                             <div className="font-bold text-gray-800">{data.title_zh || data.title_en || '等待 AI 產生名稱'}</div>
                             <div className="text-xs text-gray-400 mt-1">{product.id}</div>
                           </td>
-                          <td className="px-5 py-4 text-gray-600">{product.categoryPath || data.category || '—'}</td>
+                          <td className="px-5 py-4 text-gray-600">{getShoplineCategory(product, data) || '分類待修正'}</td>
                           <td className="px-5 py-4 text-gray-600">{data.target_moq || product.moq || '—'}</td>
                           <td className="px-5 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${state.className}`}>{state.label}</span></td>
                           <td className="px-5 py-4">
