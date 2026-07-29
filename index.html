@@ -6,6 +6,7 @@
   <title>Peyson 雲端 ERP 系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   
   <!-- Firebase Compat (相容模式) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -61,12 +62,136 @@
       "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"]
     };
 
+    const shoplineHeadersEn = [
+      "Product Handle*", "Product Name(English)*", "Product Name(Chinese)*", "Product Summary(English)", "Product Summary(Chinese)",
+      "Product Description(English)", "Product Description(Chinese)", "SEO Title(English)", "SEO Title(Chinese)",
+      "SEO Description(English)", "SEO Description(Chinese)", "SEO Keywords", "Preorder Feature", "Preorder Note(English)",
+      "Preorder Note(Chinese)", "Unlimited Preorder Supply", "Preorder Limit", "Online Store Status",
+      "Max.12 images for each product (If the Variant Image App is installed, up to 300 main images are supported. Please note that the total character count for all image links must not exceed the Excel cell limit.)*",
+      "Additional Images", "Online Store Categories(English)", "Online Store Categories(Chinese)", "Price", "Sales Price", "Cost", "SKU",
+      "Member Price", "Quantity", "Weight(KG)", "Product Tag", "Hidden Product", "Exclude Payment Options", "Exclude Delivery Options",
+      "Specification Name A(English)", "Specification Name A(Chinese)", "Specification Name B(English)", "Specification Name B(Chinese)",
+      "Variation Image", "Variation name A(English)", "Variation name A(Chinese)", "Variation name B(English)",
+      "Variation name B(Chinese)", "Variation quantity", "Variation price", "Variant Sale Price", "Variant Member Price",
+      "Variant Cost", "Variation SKU", "Variant Weight(KG)", "Barcode"
+    ];
+
+    const shoplineHeadersZh = [
+      "商品編號*", "商品名稱(英文)*", "商品名稱(繁體中文)*", "商品摘要(英文)", "商品摘要(繁體中文)", "商品描述(英文)",
+      "商品描述(繁體中文)", "SEO標題(英文)", "SEO標題(繁體中文)", "SEO簡介(英文)", "SEO簡介(繁體中文)", "SEO關鍵字",
+      "預購功能", "預購提示(英文)", "預購提示(繁體中文)", "預購商品可無限供貨", "預購上限", "網店上架狀態",
+      "每件商品最多 12 張主要圖片（若有多款式商品圖片擴充功能，則最多 300 張主要圖片。請注意，所有圖片連結的總字數不可超過 Excel 儲存格限制）*",
+      "更多相片 (每件產品最多20張主要圖片， Max.20 images for each product)", "網店分類(英文)", "網店分類(繁體中文)",
+      "原價格", "特價", "成本價", "商品貨號", "商品會員價", "數量", "重量(KG)", "商品管理標籤", "隱藏商品",
+      "排除的付款方式", "排除的送貨方式", "規格名稱1(英文)", "規格名稱1(繁體中文)", "規格名稱2(英文)",
+      "規格名稱2(繁體中文)", "款式圖片 (每個款式最多 1 張款式圖片， Max.1 image for each variant)", "選項名稱A(英文)",
+      "選項名稱A(繁體中文)", "選項名稱B(英文)", "選項名稱B(繁體中文)", "選項數量", "選項價格", "款式特價",
+      "款式會員價", "款式成本", "選項商品貨號", "款式重量(KG)", "商品條碼編號"
+    ];
+
     const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
     const cloneData = (value) => JSON.parse(JSON.stringify(value || {}));
     const splitLines = (value) => String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
     const splitComma = (value) => String(value || '').split(/[,，\n]/).map(item => item.trim()).filter(Boolean);
     const joinLines = (value) => Array.isArray(value) ? value.join('\n') : '';
     const categoryPath = (main, sub) => [main, sub].filter(Boolean).join('>');
+    const buildProductHandle = (product = {}) => {
+      const data = product.finalData || product.aiResult || {};
+      const existing = data.product_handle || product.productHandle;
+      if (existing) return String(existing).trim();
+      const safeId = String(product.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 12).toUpperCase();
+      return safeId ? `PEY-${safeId}` : '';
+    };
+
+    const buildSummary = (items) => (Array.isArray(items) ? items : [])
+      .map(item => String(item || '').replace(/^[・•\-]\s*/, '').trim())
+      .filter(Boolean)
+      .map(item => `・${item}`)
+      .join('\n\n');
+
+    const getShoplineCategory = (product = {}, data = {}) =>
+      String(product.categoryPath || data.category || '').replace(/\s*>\s*/g, '>').trim();
+
+    const getExportIssues = (product = {}) => {
+      const data = getWorkingData(product);
+      const issues = [];
+      const handle = buildProductHandle(product);
+      const category = getShoplineCategory(product, data);
+      const imageUrl = String(data.main_image_url || '').trim();
+      const summaryZh = buildSummary(data.product_highlights_zh);
+      const summaryEn = buildSummary(data.product_highlights_en);
+
+      if (!product.finalData) issues.push('尚未保存人工確認版本');
+      if (!handle) issues.push('缺少商品編號');
+      if (!String(data.title_zh || '').trim() && !String(data.title_en || '').trim()) issues.push('缺少商品名稱');
+      if (!category) {
+        issues.push('缺少網店分類');
+      } else {
+        const [main, sub = ''] = category.split('>');
+        if (!categoryTree[main] || (sub && !categoryTree[main].includes(sub))) issues.push('分類不在 ERP 分類清單');
+      }
+      if (!imageUrl) {
+        issues.push('缺少商品主圖網址');
+      } else if (!/^https?:\/\/\S+$/i.test(imageUrl)) {
+        issues.push('商品主圖網址格式不正確');
+      }
+      if (summaryZh.length > 300) issues.push('繁中商品摘要超過 300 字');
+      if (summaryEn.length > 300) issues.push('英文商品摘要超過 300 字');
+      return issues;
+    };
+
+    const buildShoplineRow = (product = {}) => {
+      const data = getWorkingData(product);
+      const row = Array(shoplineHeadersEn.length).fill('');
+      row[0] = buildProductHandle(product);
+      row[1] = String(data.title_en || '').trim();
+      row[2] = String(data.title_zh || '').trim();
+      row[3] = buildSummary(data.product_highlights_en);
+      row[4] = buildSummary(data.product_highlights_zh);
+      row[5] = String(data.description_en || '').trim();
+      row[6] = String(data.description_zh || '').trim();
+      row[7] = String(data.seo_title_en || '').trim();
+      row[8] = String(data.seo_title_zh || '').trim();
+      row[9] = String(data.seo_description_en || '').trim();
+      row[10] = String(data.seo_description_zh || '').trim();
+      row[11] = Array.isArray(data.seo_keywords) ? data.seo_keywords.join(',') : String(data.seo_keywords || '').trim();
+      row[12] = 'N';
+      row[17] = data.online_store_status === 'N' ? 'N' : 'Y';
+      row[18] = String(data.main_image_url || '').trim();
+      row[21] = getShoplineCategory(product, data);
+      row[25] = String(data.sku || '').trim();
+      row[30] = 'N';
+      return row;
+    };
+
+    const csvCell = (value) => {
+      const text = String(value ?? '');
+      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    };
+
+    const downloadBlob = (content, filename, type) => {
+      const url = URL.createObjectURL(new Blob([content], { type }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    const exportFilename = (extension) => {
+      const now = new Date();
+      const stamp = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+        '-',
+        String(now.getHours()).padStart(2, '0'),
+        String(now.getMinutes()).padStart(2, '0')
+      ].join('');
+      return `Peyson-SHOPLINE-${stamp}.${extension}`;
+    };
 
     const getCategoryParts = (product = {}, productData = {}) => {
       if (product.categoryMain) {
@@ -301,7 +426,10 @@
             ...cloneData(aiResult),
             category: categoryPath(mainCategory, subCategory),
             target_moq: Number(moq) || 0,
-            requested_customization: customOptions.join('、')
+            requested_customization: customOptions.join('、'),
+            product_handle: buildProductHandle({ id: activeJobId }),
+            main_image_url: '',
+            online_store_status: 'Y'
           };
 
           await db.collection('products').doc(activeJobId).update({
@@ -438,6 +566,9 @@
         packaging: baseData.extracted?.packaging || '',
         target_moq: baseData.target_moq ?? product.moq ?? '',
         requested_customization: baseData.requested_customization || product.customOptions || '',
+        product_handle: buildProductHandle(product),
+        main_image_url: baseData.main_image_url || '',
+        online_store_status: baseData.online_store_status === 'N' ? 'N' : 'Y',
         categoryMain: initialCategory.main,
         categorySub: initialCategory.sub
       });
@@ -453,6 +584,12 @@
       const handleSave = async () => {
         if (!formData.title_zh.trim() && !formData.title_en.trim()) {
           return setError('中文或英文商品名稱至少要填寫一個。');
+        }
+        if (!formData.product_handle.trim()) {
+          return setError('商品編號不可留白。');
+        }
+        if (formData.main_image_url.trim() && !/^https?:\/\/\S+$/i.test(formData.main_image_url.trim())) {
+          return setError('商品主圖網址需為完整的 http:// 或 https:// 網址，且不能包含空格。');
         }
 
         setIsSaving(true);
@@ -484,7 +621,10 @@
             },
             category: categoryPath(formData.categoryMain, formData.categorySub),
             target_moq: Number(formData.target_moq) || 0,
-            requested_customization: formData.requested_customization.trim()
+            requested_customization: formData.requested_customization.trim(),
+            product_handle: formData.product_handle.trim(),
+            main_image_url: formData.main_image_url.trim(),
+            online_store_status: formData.online_store_status
           };
 
           await db.collection('products').doc(product.id).update({
@@ -494,6 +634,7 @@
             categoryMain: formData.categoryMain,
             categorySub: formData.categorySub,
             categoryPath: categoryPath(formData.categoryMain, formData.categorySub),
+            productHandle: formData.product_handle.trim(),
             moq: Number(formData.target_moq) || 0,
             customOptions: formData.requested_customization.trim(),
             savedBy: {
@@ -560,6 +701,19 @@
             </section>
 
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
+              <div className="border-b pb-3">
+                <h3 className="font-bold text-gray-800">SHOPLINE 發布資料</h3>
+                <p className="text-xs text-gray-400 mt-1">商品編號由 ERP 自動產生；主圖網址未填時可保存，但會阻擋批次匯出。</p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div><label className={labelClass}>商品編號（Product Handle）</label><input className={fieldClass} value={formData.product_handle} onChange={e => updateField('product_handle', e.target.value)}/></div>
+                <div className="lg:col-span-2"><label className={labelClass}>商品主圖網址（必填後才能匯出）</label><input type="url" className={fieldClass} value={formData.main_image_url} onChange={e => updateField('main_image_url', e.target.value)} placeholder="https://..."/></div>
+                <div><label className={labelClass}>網店上架狀態</label><select className={fieldClass} value={formData.online_store_status} onChange={e => updateField('online_store_status', e.target.value)}><option value="Y">Y－上架</option><option value="N">N－下架草稿</option></select></div>
+                <div className="lg:col-span-2 flex items-end"><p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2.5 w-full">價格、特價、成本、庫存、重量與 SKU 在第一版匯出時全部留白。</p></div>
+              </div>
+            </section>
+
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
               <h3 className="font-bold text-gray-800 border-b pb-3">商品文案</h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div><label className={labelClass}>商品特色（繁中，每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_zh} onChange={e => updateField('highlights_zh', e.target.value)}/></div>
@@ -595,10 +749,13 @@
     const ProductLibraryView = () => {
       const [products, setProducts] = useState([]);
       const [selectedProductId, setSelectedProductId] = useState('');
+      const [selectedIds, setSelectedIds] = useState([]);
       const [searchText, setSearchText] = useState('');
       const [statusFilter, setStatusFilter] = useState('all');
       const [isLoading, setIsLoading] = useState(true);
       const [error, setError] = useState('');
+      const [exportError, setExportError] = useState('');
+      const [exportMessage, setExportMessage] = useState('');
 
       useEffect(() => {
         const unsubscribe = db.collection('products')
@@ -615,6 +772,11 @@
 
         return () => unsubscribe();
       }, []);
+
+      useEffect(() => {
+        const availableIds = new Set(products.map(product => product.id));
+        setSelectedIds(previous => previous.filter(id => availableIds.has(id)));
+      }, [products]);
 
       const selectedProduct = products.find(product => product.id === selectedProductId);
       if (selectedProduct) {
@@ -635,6 +797,86 @@
         ].filter(Boolean).join(' ').toLowerCase();
         return matchesStatus && (!normalizedSearch || haystack.includes(normalizedSearch));
       });
+
+      const selectableFilteredIds = filteredProducts.filter(product => product.finalData).map(product => product.id);
+      const selectedSet = new Set(selectedIds);
+      const allFilteredSelected = selectableFilteredIds.length > 0 && selectableFilteredIds.every(id => selectedSet.has(id));
+
+      const toggleSelection = (productId) => {
+        setExportError('');
+        setExportMessage('');
+        setSelectedIds(previous => previous.includes(productId)
+          ? previous.filter(id => id !== productId)
+          : [...previous, productId]);
+      };
+
+      const toggleSelectAll = () => {
+        setExportError('');
+        setExportMessage('');
+        if (allFilteredSelected) {
+          setSelectedIds(previous => previous.filter(id => !selectableFilteredIds.includes(id)));
+        } else {
+          setSelectedIds(previous => Array.from(new Set([...previous, ...selectableFilteredIds])));
+        }
+      };
+
+      const getValidatedSelection = () => {
+        const selectedProducts = products.filter(product => selectedSet.has(product.id));
+        if (selectedProducts.length === 0) {
+          setExportError('請先勾選至少一筆已儲存的商品。');
+          return null;
+        }
+
+        const errorLines = [];
+        const handleCounts = {};
+        selectedProducts.forEach(product => {
+          const handle = buildProductHandle(product);
+          if (handle) handleCounts[handle] = (handleCounts[handle] || 0) + 1;
+          const issues = getExportIssues(product);
+          if (issues.length > 0) {
+            const data = getWorkingData(product);
+            errorLines.push(`${data.title_zh || data.title_en || product.id}：${issues.join('、')}`);
+          }
+        });
+
+        Object.entries(handleCounts).forEach(([handle, count]) => {
+          if (count > 1) errorLines.push(`商品編號 ${handle} 重複 ${count} 次`);
+        });
+
+        if (errorLines.length > 0) {
+          setExportError(`有 ${errorLines.length} 項資料尚未符合匯出條件：\n${errorLines.slice(0, 10).join('\n')}${errorLines.length > 10 ? '\n其餘項目請逐筆檢查。' : ''}`);
+          return null;
+        }
+
+        return selectedProducts;
+      };
+
+      const handleExport = (format) => {
+        setExportError('');
+        setExportMessage('');
+        const selectedProducts = getValidatedSelection();
+        if (!selectedProducts) return;
+
+        const rows = [shoplineHeadersEn, shoplineHeadersZh, ...selectedProducts.map(buildShoplineRow)];
+        if (format === 'csv') {
+          const csv = '\uFEFF' + rows.map(row => row.map(csvCell).join(',')).join('\r\n');
+          downloadBlob(csv, exportFilename('csv'), 'text/csv;charset=utf-8');
+        } else {
+          if (!window.XLSX) {
+            setExportError('Excel 匯出元件尚未載入，請重新整理頁面後再試。');
+            return;
+          }
+          const worksheet = window.XLSX.utils.aoa_to_sheet(rows);
+          worksheet['!cols'] = shoplineHeadersEn.map((_, index) => ({
+            wch: index === 18 ? 42 : index <= 21 ? 24 : 16
+          }));
+          const workbook = window.XLSX.utils.book_new();
+          window.XLSX.utils.book_append_sheet(workbook, worksheet, 'Bulk Import Products');
+          window.XLSX.writeFile(workbook, exportFilename('xlsx'), { bookType: 'xlsx', compression: true });
+        }
+
+        setExportMessage(`✅ 已匯出 ${selectedProducts.length} 筆商品。`);
+      };
 
       return (
         <div className="p-8 max-w-[1500px] mx-auto animate-in fade-in duration-200">
@@ -663,7 +905,28 @@
             </div>
           </div>
 
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-sm">
+            <div>
+              <div className="font-bold text-gray-800">已選取 {selectedIds.length} 筆商品</div>
+              <div className="text-xs text-gray-500 mt-1">僅勾選已儲存商品；匯出前會檢查名稱、分類、商品編號與主圖網址。</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={toggleSelectAll} disabled={selectableFilteredIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+                {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-blue-600"/> : <Square className="w-4 h-4"/>}
+                {allFilteredSelected ? '取消全選' : '全選篩選結果'}
+              </button>
+              <button onClick={() => handleExport('csv')} disabled={selectedIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-40">
+                <FileText className="w-4 h-4"/> 下載 CSV
+              </button>
+              <button onClick={() => handleExport('xlsx')} disabled={selectedIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300">
+                <Download className="w-4 h-4"/> 匯出 SHOPLINE Excel
+              </button>
+            </div>
+          </div>
+
           {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+          {exportError && <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm whitespace-pre-line">{exportError}</div>}
+          {exportMessage && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{exportMessage}</div>}
 
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
             {isLoading ? (
@@ -675,10 +938,16 @@
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-gray-500 text-left">
                     <tr>
+                      <th className="px-4 py-3 font-medium w-12">
+                        <button onClick={toggleSelectAll} disabled={selectableFilteredIds.length === 0} title="全選目前篩選結果" className="p-1 disabled:opacity-30">
+                          {allFilteredSelected ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5"/>}
+                        </button>
+                      </th>
                       <th className="px-5 py-3 font-medium">商品名稱</th>
                       <th className="px-5 py-3 font-medium">分類</th>
                       <th className="px-5 py-3 font-medium">MOQ</th>
                       <th className="px-5 py-3 font-medium">狀態</th>
+                      <th className="px-5 py-3 font-medium">匯出檢查</th>
                       <th className="px-5 py-3 font-medium">更新時間</th>
                       <th className="px-5 py-3 font-medium text-right">操作</th>
                     </tr>
@@ -687,8 +956,16 @@
                     {filteredProducts.map(product => {
                       const data = getWorkingData(product);
                       const state = getProductState(product);
+                      const exportIssues = getExportIssues(product);
+                      const canSelect = Boolean(product.finalData);
+                      const isSelected = selectedSet.has(product.id);
                       return (
                         <tr key={product.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-4">
+                            <button onClick={() => toggleSelection(product.id)} disabled={!canSelect} title={canSelect ? '選取商品' : '請先保存商品'} className="p-1 disabled:opacity-25 disabled:cursor-not-allowed">
+                              {isSelected ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-gray-400"/>}
+                            </button>
+                          </td>
                           <td className="px-5 py-4">
                             <div className="font-bold text-gray-800">{data.title_zh || data.title_en || '等待 AI 產生名稱'}</div>
                             <div className="text-xs text-gray-400 mt-1">{product.id}</div>
@@ -696,6 +973,11 @@
                           <td className="px-5 py-4 text-gray-600">{product.categoryPath || data.category || '—'}</td>
                           <td className="px-5 py-4 text-gray-600">{data.target_moq || product.moq || '—'}</td>
                           <td className="px-5 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${state.className}`}>{state.label}</span></td>
+                          <td className="px-5 py-4">
+                            {exportIssues.length === 0
+                              ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700"><CheckCircle2 className="w-4 h-4"/> 可匯出</span>
+                              : <span title={exportIssues.join('、')} className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><AlertCircle className="w-4 h-4"/> 缺 {exportIssues.length} 項</span>}
+                          </td>
                           <td className="px-5 py-4 text-gray-500 whitespace-nowrap">{formatDate(product.updatedAt || product.createdAt)}</td>
                           <td className="px-5 py-4 text-right">
                             <button onClick={() => setSelectedProductId(product.id)} disabled={!product.aiResult && !product.finalData} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
