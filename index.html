@@ -58,9 +58,45 @@
       "電子產品/周邊": ["充電線", "行動電源", "無線充電盤", "手機背繩", "藍芽音響", "卡套", "其他3C", "周邊小物"],
       "生活小物": ["拼圖", "鑰匙圈", "手機架", "捲尺"],
       "ESG環保禮品": [],
-      "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"],
-      "高爾夫專區": [],
-      "禮物包裝": []
+      "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"]
+    };
+
+    const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
+    const cloneData = (value) => JSON.parse(JSON.stringify(value || {}));
+    const splitLines = (value) => String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
+    const splitComma = (value) => String(value || '').split(/[,，\n]/).map(item => item.trim()).filter(Boolean);
+    const joinLines = (value) => Array.isArray(value) ? value.join('\n') : '';
+    const categoryPath = (main, sub) => [main, sub].filter(Boolean).join('>');
+
+    const getCategoryParts = (product = {}, productData = {}) => {
+      if (product.categoryMain) {
+        return { main: product.categoryMain, sub: product.categorySub || '' };
+      }
+
+      const raw = product.categoryPath || productData.category || product.category || '';
+      const separator = raw.includes('>') ? '>' : ' - ';
+      const [main = Object.keys(categoryTree)[0], sub = ''] = raw.split(separator);
+      return {
+        main: categoryTree[main] ? main : Object.keys(categoryTree)[0],
+        sub
+      };
+    };
+
+    const getWorkingData = (product = {}) => cloneData(product.finalData || product.aiResult || {});
+
+    const formatDate = (timestamp) => {
+      if (!timestamp) return '—';
+      const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+      return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-TW', { hour12: false });
+    };
+
+    const getProductState = (product = {}) => {
+      if (product.status === 'pending') return { key: 'processing', label: '排隊中', className: 'bg-amber-50 text-amber-700' };
+      if (product.status === 'processing') return { key: 'processing', label: 'AI 處理中', className: 'bg-blue-50 text-blue-700' };
+      if (product.status === 'error') return { key: 'error', label: '處理失敗', className: 'bg-red-50 text-red-700' };
+      if (product.finalData) return { key: 'saved', label: '已儲存', className: 'bg-green-50 text-green-700' };
+      if (product.aiResult) return { key: 'review', label: '待確認', className: 'bg-violet-50 text-violet-700' };
+      return { key: 'unknown', label: '資料不完整', className: 'bg-gray-100 text-gray-600' };
     };
 
     // ==========================================
@@ -125,7 +161,7 @@
     // ==========================================
     // 元件 2：AI 流水線工作台
     // ==========================================
-    const AIImportView = () => {
+    const AIImportView = ({ onOpenLibrary }) => {
       const [rawText, setRawText] = useState('');
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
@@ -134,11 +170,13 @@
       const availableOptions = ["雷射雕刻", "網版印刷", "彩色UV直印", "燙金/燙銀", "皮革壓印", "客製化外包裝盒"];
       
       const [specImageBase64, setSpecImageBase64] = useState(null);
-      const fileInputRef = useRef(null);
       const specInputRef = useRef(null);
 
-      const [aiModel, setAiModel] = useState('gemini-1.5-pro');
+      const [aiModel, setAiModel] = useState('gemini-3.6-flash');
       const [aiResult, setAiResult] = useState(null);
+      const [aiDraft, setAiDraft] = useState(null);
+      const [activeJobId, setActiveJobId] = useState('');
+      const [jobStatus, setJobStatus] = useState('');
       const [isGenerating, setIsGenerating] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
       const [error, setError] = useState('');
@@ -156,29 +194,36 @@
         }
       };
 
-      // 監聽雲端處理結果
       useEffect(() => {
-        const unsubscribe = db.collection('products')
-          .where('status', '==', 'completed')
-          .orderBy('updatedAt', 'desc')
-          .limit(1)
-          .onSnapshot((snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-              if (change.type === "added" || change.type === "modified") {
-                const docData = change.doc.data();
-                if (docData.aiResult) {
-                   setAiResult(docData.aiResult);
-                   setSuccessMsg(`✨ 雲端處理完成：${docData.aiResult.title_zh}`);
-                   setTimeout(() => setSuccessMsg(''), 5000);
-                }
-              }
-            });
-          }, (error) => {
-            console.error("監聽資料庫失敗:", error);
-          });
+        if (!activeJobId) return undefined;
+
+        const unsubscribe = db.collection('products').doc(activeJobId).onSnapshot((snapshot) => {
+          if (!snapshot.exists) return;
+          const docData = snapshot.data();
+          setJobStatus(docData.status || '');
+
+          if (docData.status === 'completed' && docData.aiResult) {
+            const originalDraft = cloneData(docData.aiResult);
+            setAiDraft(originalDraft);
+            setAiResult(cloneData(docData.finalData || originalDraft));
+            setIsGenerating(false);
+            if (!docData.finalData) {
+              setSuccessMsg(`✨ AI 處理完成：${docData.aiResult.title_zh}`);
+            }
+          }
+
+          if (docData.status === 'error') {
+            setIsGenerating(false);
+            setError(`AI 處理失敗：${docData.errorMsg || '請稍後再試'}`);
+          }
+        }, (snapshotError) => {
+          console.error("監聽商品失敗:", snapshotError);
+          setIsGenerating(false);
+          setError(`無法取得處理結果：${snapshotError.message}`);
+        });
 
         return () => unsubscribe();
-      }, []);
+      }, [activeJobId]);
 
       const handleGenerate = async () => {
         if (!rawText.trim() && !specImageBase64) return setError('請貼上文字說明或上傳規格圖片！');
@@ -207,24 +252,37 @@
           setSuccessMsg('建立雲端任務中...');
 
           const customStr = customOptions.length > 0 ? customOptions.join('、') : '一般客製化';
-          await db.collection('products').add({
+          const selectedCategoryPath = categoryPath(mainCategory, subCategory);
+          const docRef = await db.collection('products').add({
             status: 'pending',
+            catalogStatus: 'ai_processing',
             rawText: rawText,
             imageUrl: imageUrl,
-            moq: moq,
-            category: `${mainCategory} - ${subCategory}`,
+            sourceImages: imageUrl ? [imageUrl] : [],
+            moq: Number(moq) || 0,
+            category: selectedCategoryPath,
+            categoryMain: mainCategory,
+            categorySub: subCategory,
+            categoryPath: selectedCategoryPath,
             customOptions: customStr,
+            customOptionList: customOptions,
             aiModel: aiModel,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdBy: {
+              uid: auth.currentUser?.uid || '',
+              email: auth.currentUser?.email || ''
+            },
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
           });
 
+          setActiveJobId(docRef.id);
+          setJobStatus('pending');
+          setAiResult(null);
+          setAiDraft(null);
           setRawText('');
           setSpecImageBase64(null);
           if (specInputRef.current) specInputRef.current.value = '';
-          
-          setIsGenerating(false);
-          setSuccessMsg('✅ 任務已送交雲端！您可以直接輸入下一筆商品。');
-          setTimeout(() => setSuccessMsg(''), 4000);
+          setSuccessMsg('✅ 任務已送交雲端，正在等待 AI 完成。');
 
         } catch (err) {
           console.error("上傳失敗:", err);
@@ -236,15 +294,35 @@
       const handlePreviewChange = (field, val) => { setAiResult({ ...aiResult, [field]: val }); };
 
       const handleSave = async () => {
-        if (!aiResult) return;
+        if (!aiResult || !activeJobId) return;
         setIsSaving(true); setError(''); setSuccessMsg('');
         try {
-          const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(aiResult, null, 2));
-          const dlAnchorElem = document.createElement('a');
-          dlAnchorElem.setAttribute("href", dataStr);
-          dlAnchorElem.setAttribute("download", `Product_${new Date().getTime()}.json`);
-          dlAnchorElem.click();
-          setSuccessMsg(`✅ 商品 [${aiResult.title_zh}] 已成功匯出！`);
+          const finalData = {
+            ...cloneData(aiResult),
+            category: categoryPath(mainCategory, subCategory),
+            target_moq: Number(moq) || 0,
+            requested_customization: customOptions.join('、')
+          };
+
+          await db.collection('products').doc(activeJobId).update({
+            aiDraft: cloneData(aiDraft || aiResult),
+            finalData,
+            catalogStatus: 'draft',
+            categoryMain: mainCategory,
+            categorySub: subCategory,
+            categoryPath: categoryPath(mainCategory, subCategory),
+            moq: Number(moq) || 0,
+            customOptions: customOptions.join('、'),
+            customOptionList: customOptions,
+            savedBy: {
+              uid: auth.currentUser?.uid || '',
+              email: auth.currentUser?.email || ''
+            },
+            savedAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+
+          setSuccessMsg(`✅ 商品「${aiResult.title_zh}」已保存至商品庫。`);
         } catch (err) {
           setError(`儲存失敗: ${err.message}`);
         } finally {
@@ -259,7 +337,7 @@
               <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
                 <Wand2 className="w-6 h-6 text-blue-600"/> AI 快速建檔流水線
               </h2>
-              <p className="text-gray-500 text-sm mt-1">資料送出後即可建立下一筆，系統將在背景自動處理。</p>
+              <p className="text-gray-500 text-sm mt-1">AI 完成後先人工確認，再保存為 ERP 商品母資料。</p>
             </div>
             <div className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm flex items-center gap-3">
                <Cpu className="w-5 h-5 text-gray-500" />
@@ -269,8 +347,9 @@
                  onChange={(e) => setAiModel(e.target.value)}
                  className="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-md focus:ring-blue-500 focus:border-blue-500 p-1.5"
                >
-                  <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                  <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro Preview</option>
                </select>
             </div>
           </div>
@@ -296,19 +375,19 @@
                 {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg flex items-center gap-2"><AlertCircle className="w-5 h-5 shrink-0"/> {error}</div>}
                 {successMsg && <div className="mb-4 p-3 bg-green-100 text-green-700 text-sm rounded-lg flex items-center gap-2"><CheckCircle2 className="w-5 h-5 shrink-0"/> {successMsg}</div>}
                 <button onClick={handleGenerate} disabled={isGenerating} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md transition-all text-lg ${isGenerating ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                  {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> 送交雲端中...</> : <><Cloud className="w-6 h-6"/> 2. 送出處理 (背景執行)</>}
+                  {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> {jobStatus === 'processing' ? 'AI 分析中...' : '等待雲端處理...'}</> : <><Cloud className="w-6 h-6"/> 2. 送出 AI 處理</>}
                 </button>
               </div>
             </div>
 
             {/* 右側預覽區 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative">
-               <div className="bg-gray-800 px-6 py-4 border-b border-gray-900 font-bold text-white flex justify-between items-center"><span className="flex items-center gap-2"><Eye className="w-5 h-5 text-green-400"/> 3. 最新處理完成預覽</span></div>
+               <div className="bg-gray-800 px-6 py-4 border-b border-gray-900 font-bold text-white flex justify-between items-center"><span className="flex items-center gap-2"><Eye className="w-5 h-5 text-green-400"/> 3. 本次商品確認</span></div>
                <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50 relative">
                  {!aiResult && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
                        <FileText className="w-16 h-16 mb-4 opacity-20" />
-                       <p>等待雲端處理完成中...</p>
+                       <p>{isGenerating ? '等待本次商品處理完成中...' : '請先建立一筆商品'}</p>
                     </div>
                  )}
                  {aiResult && (
@@ -323,10 +402,313 @@
                </div>
                <div className="p-6 bg-white border-t border-gray-200 absolute bottom-0 left-0 right-0">
                   <button onClick={handleSave} disabled={!aiResult || isSaving} className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg transition-all text-lg ${!aiResult ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}>
-                    <Save className="w-6 h-6"/> 確認無誤，匯出資料
+                    <Save className="w-6 h-6"/> 確認無誤，保存至商品庫
                   </button>
+                  {aiResult && (
+                    <button onClick={onOpenLibrary} className="w-full mt-2 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                      前往商品庫瀏覽與編輯
+                    </button>
+                  )}
                </div>
             </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ProductEditor = ({ product, onBack }) => {
+      const baseData = getWorkingData(product);
+      const initialCategory = getCategoryParts(product, baseData);
+      const [formData, setFormData] = useState({
+        title_zh: baseData.title_zh || '',
+        title_en: baseData.title_en || '',
+        description_zh: baseData.description_zh || '',
+        description_en: baseData.description_en || '',
+        highlights_zh: joinLines(baseData.product_highlights_zh),
+        highlights_en: joinLines(baseData.product_highlights_en),
+        seo_title_zh: baseData.seo_title_zh || '',
+        seo_title_en: baseData.seo_title_en || '',
+        seo_description_zh: baseData.seo_description_zh || '',
+        seo_description_en: baseData.seo_description_en || '',
+        seo_keywords: Array.isArray(baseData.seo_keywords) ? baseData.seo_keywords.join(', ') : '',
+        material: baseData.extracted?.material || '',
+        dimensions: baseData.extracted?.dimensions || '',
+        capacity: baseData.extracted?.capacity || '',
+        colors: joinLines(baseData.extracted?.colors),
+        packaging: baseData.extracted?.packaging || '',
+        target_moq: baseData.target_moq ?? product.moq ?? '',
+        requested_customization: baseData.requested_customization || product.customOptions || '',
+        categoryMain: initialCategory.main,
+        categorySub: initialCategory.sub
+      });
+      const [isSaving, setIsSaving] = useState(false);
+      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+
+      const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+      const handleCategoryMain = (main) => {
+        setFormData(prev => ({ ...prev, categoryMain: main, categorySub: categoryTree[main]?.[0] || '' }));
+      };
+
+      const handleSave = async () => {
+        if (!formData.title_zh.trim() && !formData.title_en.trim()) {
+          return setError('中文或英文商品名稱至少要填寫一個。');
+        }
+
+        setIsSaving(true);
+        setError('');
+        setMessage('');
+
+        try {
+          const currentData = getWorkingData(product);
+          const finalData = {
+            ...currentData,
+            title_zh: formData.title_zh.trim(),
+            title_en: formData.title_en.trim(),
+            description_zh: formData.description_zh.trim(),
+            description_en: formData.description_en.trim(),
+            product_highlights_zh: splitLines(formData.highlights_zh),
+            product_highlights_en: splitLines(formData.highlights_en),
+            seo_title_zh: formData.seo_title_zh.trim(),
+            seo_title_en: formData.seo_title_en.trim(),
+            seo_description_zh: formData.seo_description_zh.trim(),
+            seo_description_en: formData.seo_description_en.trim(),
+            seo_keywords: splitComma(formData.seo_keywords),
+            extracted: {
+              ...(currentData.extracted || {}),
+              material: formData.material.trim(),
+              dimensions: formData.dimensions.trim(),
+              capacity: formData.capacity.trim(),
+              colors: splitLines(formData.colors),
+              packaging: formData.packaging.trim()
+            },
+            category: categoryPath(formData.categoryMain, formData.categorySub),
+            target_moq: Number(formData.target_moq) || 0,
+            requested_customization: formData.requested_customization.trim()
+          };
+
+          await db.collection('products').doc(product.id).update({
+            aiDraft: cloneData(product.aiDraft || product.aiResult || {}),
+            finalData,
+            catalogStatus: 'draft',
+            categoryMain: formData.categoryMain,
+            categorySub: formData.categorySub,
+            categoryPath: categoryPath(formData.categoryMain, formData.categorySub),
+            moq: Number(formData.target_moq) || 0,
+            customOptions: formData.requested_customization.trim(),
+            savedBy: {
+              uid: auth.currentUser?.uid || '',
+              email: auth.currentUser?.email || ''
+            },
+            savedAt: product.savedAt || serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+
+          setMessage('✅ 商品資料已儲存。重新整理或離開後再回來，內容仍會保留。');
+        } catch (saveError) {
+          setError(`儲存失敗：${saveError.message}`);
+        } finally {
+          setIsSaving(false);
+        }
+      };
+
+      const fieldClass = "w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none";
+      const labelClass = "block text-xs font-bold text-gray-500 mb-1";
+
+      return (
+        <div className="p-8 max-w-6xl mx-auto animate-in fade-in duration-200">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <button onClick={onBack} className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"><ArrowLeft className="w-5 h-5"/></button>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">編輯商品</h2>
+                <p className="text-xs text-gray-400 mt-1">Firestore ID：{product.id}</p>
+              </div>
+            </div>
+            <button onClick={handleSave} disabled={isSaving} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center gap-2">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} 儲存修改
+            </button>
+          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+          {message && <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm">{message}</div>}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
+              <h3 className="font-bold text-gray-800 border-b pb-3">基本資料與分類</h3>
+              <div><label className={labelClass}>商品名稱（繁中）</label><input className={fieldClass} value={formData.title_zh} onChange={e => updateField('title_zh', e.target.value)}/></div>
+              <div><label className={labelClass}>商品名稱（英文）</label><input className={fieldClass} value={formData.title_en} onChange={e => updateField('title_en', e.target.value)}/></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelClass}>主分類</label><select className={fieldClass} value={formData.categoryMain} onChange={e => handleCategoryMain(e.target.value)}>{Object.keys(categoryTree).map(item => <option key={item}>{item}</option>)}</select></div>
+                <div><label className={labelClass}>次分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!categoryTree[formData.categoryMain]?.length}>{categoryTree[formData.categoryMain]?.map(item => <option key={item}>{item}</option>) || <option value="">無次分類</option>}</select></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
+                <div><label className={labelClass}>客製工藝</label><input className={fieldClass} value={formData.requested_customization} onChange={e => updateField('requested_customization', e.target.value)}/></div>
+              </div>
+            </section>
+
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
+              <h3 className="font-bold text-gray-800 border-b pb-3">規格資料</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className={labelClass}>材質</label><input className={fieldClass} value={formData.material} onChange={e => updateField('material', e.target.value)}/></div>
+                <div><label className={labelClass}>容量</label><input className={fieldClass} value={formData.capacity} onChange={e => updateField('capacity', e.target.value)}/></div>
+              </div>
+              <div><label className={labelClass}>尺寸</label><input className={fieldClass} value={formData.dimensions} onChange={e => updateField('dimensions', e.target.value)}/></div>
+              <div><label className={labelClass}>顏色（每行一個）</label><textarea className={`${fieldClass} min-h-[90px]`} value={formData.colors} onChange={e => updateField('colors', e.target.value)}/></div>
+              <div><label className={labelClass}>包裝</label><input className={fieldClass} value={formData.packaging} onChange={e => updateField('packaging', e.target.value)}/></div>
+            </section>
+
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
+              <h3 className="font-bold text-gray-800 border-b pb-3">商品文案</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div><label className={labelClass}>商品特色（繁中，每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_zh} onChange={e => updateField('highlights_zh', e.target.value)}/></div>
+                <div><label className={labelClass}>Product Highlights（每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_en} onChange={e => updateField('highlights_en', e.target.value)}/></div>
+                <div><label className={labelClass}>商品描述（繁中）</label><textarea className={`${fieldClass} min-h-[180px]`} value={formData.description_zh} onChange={e => updateField('description_zh', e.target.value)}/></div>
+                <div><label className={labelClass}>Product Description</label><textarea className={`${fieldClass} min-h-[180px]`} value={formData.description_en} onChange={e => updateField('description_en', e.target.value)}/></div>
+              </div>
+            </section>
+
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
+              <h3 className="font-bold text-gray-800 border-b pb-3">SEO</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div><label className={labelClass}>SEO 標題（繁中）</label><input className={fieldClass} value={formData.seo_title_zh} onChange={e => updateField('seo_title_zh', e.target.value)}/></div>
+                <div><label className={labelClass}>SEO Title</label><input className={fieldClass} value={formData.seo_title_en} onChange={e => updateField('seo_title_en', e.target.value)}/></div>
+                <div><label className={labelClass}>SEO 簡介（繁中）</label><textarea className={fieldClass} value={formData.seo_description_zh} onChange={e => updateField('seo_description_zh', e.target.value)}/></div>
+                <div><label className={labelClass}>SEO Description</label><textarea className={fieldClass} value={formData.seo_description_en} onChange={e => updateField('seo_description_en', e.target.value)}/></div>
+                <div className="lg:col-span-2"><label className={labelClass}>SEO 關鍵字（逗號分隔）</label><input className={fieldClass} value={formData.seo_keywords} onChange={e => updateField('seo_keywords', e.target.value)}/></div>
+              </div>
+            </section>
+          </div>
+
+          {(baseData.missing_fields?.length > 0 || baseData.conflicts?.length > 0) && (
+            <section className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">
+              <h3 className="font-bold text-amber-800 mb-3">AI 提醒</h3>
+              {baseData.missing_fields?.length > 0 && <p className="text-sm text-amber-800 mb-2">缺少資料：{baseData.missing_fields.join('、')}</p>}
+              {baseData.conflicts?.length > 0 && <p className="text-sm text-red-700">資料衝突：{baseData.conflicts.join('、')}</p>}
+            </section>
+          )}
+        </div>
+      );
+    };
+
+    const ProductLibraryView = () => {
+      const [products, setProducts] = useState([]);
+      const [selectedProductId, setSelectedProductId] = useState('');
+      const [searchText, setSearchText] = useState('');
+      const [statusFilter, setStatusFilter] = useState('all');
+      const [isLoading, setIsLoading] = useState(true);
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        const unsubscribe = db.collection('products')
+          .orderBy('updatedAt', 'desc')
+          .limit(100)
+          .onSnapshot((snapshot) => {
+            setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            setIsLoading(false);
+          }, (snapshotError) => {
+            console.error('商品庫載入失敗:', snapshotError);
+            setError(`商品庫載入失敗：${snapshotError.message}`);
+            setIsLoading(false);
+          });
+
+        return () => unsubscribe();
+      }, []);
+
+      const selectedProduct = products.find(product => product.id === selectedProductId);
+      if (selectedProduct) {
+        return <ProductEditor product={selectedProduct} onBack={() => setSelectedProductId('')} />;
+      }
+
+      const normalizedSearch = searchText.trim().toLowerCase();
+      const filteredProducts = products.filter(product => {
+        const data = getWorkingData(product);
+        const state = getProductState(product);
+        const matchesStatus = statusFilter === 'all' || state.key === statusFilter;
+        const haystack = [
+          data.title_zh,
+          data.title_en,
+          product.categoryPath,
+          data.category,
+          product.id
+        ].filter(Boolean).join(' ').toLowerCase();
+        return matchesStatus && (!normalizedSearch || haystack.includes(normalizedSearch));
+      });
+
+      return (
+        <div className="p-8 max-w-[1500px] mx-auto animate-in fade-in duration-200">
+          <div className="flex items-end justify-between mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Package className="w-6 h-6 text-blue-600"/> 商品庫</h2>
+              <p className="text-gray-500 text-sm mt-1">瀏覽 AI 草稿、確認後商品與人工編輯版本。</p>
+            </div>
+            <div className="text-sm text-gray-500">共 {filteredProducts.length} 筆</div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 flex flex-col md:flex-row gap-3 shadow-sm">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400"/>
+              <input value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="搜尋商品名稱、分類或 Firestore ID"/>
+            </div>
+            <div className="relative">
+              <Filter className="w-4 h-4 absolute left-3 top-3 text-gray-400"/>
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="pl-9 pr-8 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="all">全部狀態</option>
+                <option value="processing">處理中</option>
+                <option value="review">待確認</option>
+                <option value="saved">已儲存</option>
+                <option value="error">處理失敗</option>
+              </select>
+            </div>
+          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
+
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+            {isLoading ? (
+              <div className="py-20 flex justify-center text-gray-400"><Loader2 className="w-7 h-7 animate-spin"/></div>
+            ) : filteredProducts.length === 0 ? (
+              <div className="py-20 text-center text-gray-400"><Package className="w-12 h-12 mx-auto mb-3 opacity-30"/><p>目前沒有符合條件的商品</p></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500 text-left">
+                    <tr>
+                      <th className="px-5 py-3 font-medium">商品名稱</th>
+                      <th className="px-5 py-3 font-medium">分類</th>
+                      <th className="px-5 py-3 font-medium">MOQ</th>
+                      <th className="px-5 py-3 font-medium">狀態</th>
+                      <th className="px-5 py-3 font-medium">更新時間</th>
+                      <th className="px-5 py-3 font-medium text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredProducts.map(product => {
+                      const data = getWorkingData(product);
+                      const state = getProductState(product);
+                      return (
+                        <tr key={product.id} className="hover:bg-gray-50">
+                          <td className="px-5 py-4">
+                            <div className="font-bold text-gray-800">{data.title_zh || data.title_en || '等待 AI 產生名稱'}</div>
+                            <div className="text-xs text-gray-400 mt-1">{product.id}</div>
+                          </td>
+                          <td className="px-5 py-4 text-gray-600">{product.categoryPath || data.category || '—'}</td>
+                          <td className="px-5 py-4 text-gray-600">{data.target_moq || product.moq || '—'}</td>
+                          <td className="px-5 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${state.className}`}>{state.label}</span></td>
+                          <td className="px-5 py-4 text-gray-500 whitespace-nowrap">{formatDate(product.updatedAt || product.createdAt)}</td>
+                          <td className="px-5 py-4 text-right">
+                            <button onClick={() => setSelectedProductId(product.id)} disabled={!product.aiResult && !product.finalData} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                              <Edit3 className="w-4 h-4"/> 編輯
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -378,6 +760,7 @@
             <nav className="flex-1 py-4 flex flex-col justify-between">
               <div>
                 <button onClick={() => setActiveTab('ai-import')} className={`w-full flex items-center py-3 px-6 gap-3 text-sm transition-colors ${activeTab === 'ai-import' ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400'}`}><Wand2 className="w-5 h-5 shrink-0" /> AI 流水線</button>
+                <button onClick={() => setActiveTab('products')} className={`w-full flex items-center py-3 px-6 gap-3 text-sm transition-colors ${activeTab === 'products' ? 'bg-blue-600 text-white border-r-4 border-blue-400' : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}><Package className="w-5 h-5 shrink-0" /> 商品庫</button>
               </div>
               
               {/* 登出按鈕 */}
@@ -389,7 +772,8 @@
             </nav>
           </div>
           <main className="flex-1 overflow-y-auto relative">
-            {activeTab === 'ai-import' && <AIImportView />}
+            {activeTab === 'ai-import' && <AIImportView onOpenLibrary={() => setActiveTab('products')} />}
+            {activeTab === 'products' && <ProductLibraryView />}
           </main>
         </div>
       );
