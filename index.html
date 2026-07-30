@@ -28,7 +28,7 @@
       AlertCircle, Loader2, Building2, ShoppingCart, Trash2, Cloud, Filter, Users, LogOut, 
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
-      Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore
+      Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore, ChevronDown, ChevronRight
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
@@ -84,7 +84,7 @@
       "壓印": "Debossing"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.5.0";
+    const ERP_VERSION = "2.5.1";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -1553,6 +1553,7 @@
       // ✅ 將 isLoggedIn 初始值設為 null，代表正在驗證中
       const [isLoggedIn, setIsLoggedIn] = useState(null); 
       const [activeTab, setActiveTab] = useState('ai-import');
+      const [expandedGroup, setExpandedGroup] = useState('');
       const [currentUser, setCurrentUser] = useState(null);
 
       // ✅ 監聽 Firebase 的登入狀態，解決重新整理跳回登入頁的問題
@@ -1641,35 +1642,55 @@
         <div className="flex min-h-screen bg-gray-50 font-sans">
           <div className="bg-gray-900 text-white w-64 min-h-screen flex flex-col shrink-0">
             <div className="p-6 border-b border-gray-800"><h1 className="text-2xl font-bold tracking-wider">PEYSON<span className="text-blue-500">.ERP</span></h1></div>
-            <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-5">
-              {navigationGroups.map(group => (
-                <section key={group.label}>
-                  <div className="px-3 mb-1.5 flex items-center gap-2 text-xs font-bold text-gray-300">
-                    <span aria-hidden="true">{group.emoji}</span>
-                    <span>{group.label}</span>
-                  </div>
-                  <div className="space-y-1">
-                    {group.items.map(item => (
-                      <button
-                        key={item.id || item.label}
-                        type="button"
-                        disabled={item.disabled}
-                        onClick={() => !item.disabled && setActiveTab(item.id)}
-                        className={`w-full min-h-[36px] flex items-center justify-between rounded-lg py-2 px-3 text-left text-sm transition-colors ${
-                          item.disabled
-                            ? 'text-gray-600 cursor-not-allowed'
-                            : activeTab === item.id
-                              ? 'bg-blue-600 text-white'
-                              : 'text-gray-400 hover:text-white hover:bg-gray-800'
-                        }`}
-                      >
-                        <span>{item.label}</span>
-                        {item.disabled && <span className="text-[9px] uppercase tracking-wide text-gray-600">Coming Soon</span>}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
+            <nav className="flex-1 py-4 px-3 overflow-y-auto space-y-1">
+              {navigationGroups.map(group => {
+                const isExpanded = expandedGroup === group.label;
+                const containsActiveTab = group.items.some(item => item.id === activeTab);
+                return (
+                  <section key={group.label}>
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      onClick={() => setExpandedGroup(current => current === group.label ? '' : group.label)}
+                      className={`w-full min-h-[44px] flex items-center justify-between rounded-lg py-2.5 px-3 text-left transition-colors ${
+                        containsActiveTab
+                          ? 'text-white bg-gray-800'
+                          : 'text-gray-300 hover:text-white hover:bg-gray-800'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-bold">
+                        <span aria-hidden="true">{group.emoji}</span>
+                        <span>{group.label}</span>
+                      </span>
+                      {isExpanded
+                        ? <ChevronDown className="w-4 h-4 text-gray-400" />
+                        : <ChevronRight className="w-4 h-4 text-gray-500" />}
+                    </button>
+                    {isExpanded && (
+                      <div className="mt-1 mb-2 ml-3 pl-3 border-l border-gray-700 space-y-1">
+                        {group.items.map(item => (
+                          <button
+                            key={item.id || item.label}
+                            type="button"
+                            disabled={item.disabled}
+                            onClick={() => !item.disabled && setActiveTab(item.id)}
+                            className={`w-full min-h-[36px] flex items-center justify-between rounded-lg py-2 px-3 text-left text-sm transition-colors ${
+                              item.disabled
+                                ? 'text-gray-600 cursor-not-allowed'
+                                : activeTab === item.id
+                                  ? 'bg-blue-600 text-white'
+                                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                            }`}
+                          >
+                            <span>{item.label}</span>
+                            {item.disabled && <span className="text-[9px] uppercase tracking-wide text-gray-600">Coming Soon</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
             </nav>
             <div className="border-t border-gray-800 px-4 py-4">
               <div className="px-2 mb-3">
