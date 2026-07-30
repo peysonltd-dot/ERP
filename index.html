@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Peyson 雲端 ERP 系統</title>
-  <link rel="icon" type="image/jpeg" href="https://img.shoplineapp.com/media/image_clips/6a6b08a9ded39a48bf7f8596/original.jpg?1785399465=&amp;owner_id=66221c5c384dbb002ec45c18">
-  <link rel="shortcut icon" type="image/jpeg" href="https://img.shoplineapp.com/media/image_clips/6a6b08a9ded39a48bf7f8596/original.jpg?1785399465=&amp;owner_id=66221c5c384dbb002ec45c18">
-  <link rel="apple-touch-icon" href="https://img.shoplineapp.com/media/image_clips/6a6b08a9ded39a48bf7f8596/original.jpg?1785399465=&amp;owner_id=66221c5c384dbb002ec45c18">
+  <link rel="icon" type="image/jpeg" href="https://img.shoplineapp.com/media/image_clips/6a6b0cda3545a2962b4ea116/original.jpg?1785400538=&amp;owner_id=66221c5c384dbb002ec45c18">
+  <link rel="shortcut icon" type="image/jpeg" href="https://img.shoplineapp.com/media/image_clips/6a6b0cda3545a2962b4ea116/original.jpg?1785400538=&amp;owner_id=66221c5c384dbb002ec45c18">
+  <link rel="apple-touch-icon" href="https://img.shoplineapp.com/media/image_clips/6a6b0cda3545a2962b4ea116/original.jpg?1785400538=&amp;owner_id=66221c5c384dbb002ec45c18">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -68,9 +68,22 @@
       "禮物包裝": []
     };
     const customizationOptions = ["彩色印刷", "單色印刷", "壓印燙金", "壓印", "雷射雕刻"];
+    const customizationDisplayOrder = ["雷射雕刻", "單色印刷", "彩色印刷", "壓印燙金", "壓印"];
+    const customizationLabelsZh = {
+      "雷射雕刻": "雷雕",
+      "單色印刷": "單色印刷",
+      "彩色印刷": "彩色印刷",
+      "壓印燙金": "壓印燙金",
+      "壓印": "壓印"
+    };
+    const customizationLabelsEn = {
+      "雷射雕刻": "Laser Engraving",
+      "單色印刷": "Single-Color Printing",
+      "彩色印刷": "Full-Color Printing",
+      "壓印燙金": "Foil Stamping",
+      "壓印": "Debossing"
+    };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ONSITE_COPY_ZH = "◆ 此商品可提供活動現場客製服務，歡迎洽詢官方帳號@peyson。";
-    const ONSITE_COPY_EN = "On-site event personalization is available for this product. Please contact our official account @peyson for details.";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -138,11 +151,6 @@
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     };
-    const applyOnsiteCopy = (value, onsiteCustomization, language) => {
-      const copy = language === 'en' ? ONSITE_COPY_EN : ONSITE_COPY_ZH;
-      const cleaned = stripOnsiteCopy(value, language);
-      return onsiteCustomization === 'Y' ? [cleaned, copy].filter(Boolean).join('\n\n') : cleaned;
-    };
     const normalizeCustomizationCrafts = (...values) => {
       const raw = values.flatMap(value => Array.isArray(value) ? value : [value]).filter(Boolean).join('、');
       const matched = customizationOptions.filter(option => {
@@ -155,6 +163,30 @@
         return false;
       });
       return matched.length > 0 ? matched : ['雷射雕刻'];
+    };
+    const stripManagedHighlights = (items, language) => {
+      const managedPattern = language === 'en'
+        ? /^(?:customization|customisation|printing|decoration)\s+(?:techniques?|methods?|crafts?)\s*[:：]|^(?:available\s+for\s+)?on-site\s+event\s+(?:customization|customisation|personalization|laser\s+engraving)/i
+        : /^(?:印製工藝|印刷工藝|客製工藝|客製方式)\s*[:：]|^可在活動現場客製化|^(?:此|本)商品(?:可提供|支援)活動現場客製/;
+      return (Array.isArray(items) ? items : splitLines(items))
+        .map(item => String(item || '').replace(/^[・•◆※\-]\s*/, '').trim())
+        .filter(item => item && !managedPattern.test(item));
+    };
+    const applyCustomizationHighlights = (items, crafts, onsiteCustomization, language) => {
+      const normalizedCrafts = customizationDisplayOrder.filter(craft => crafts.includes(craft));
+      const cleaned = stripManagedHighlights(items, language);
+      if (normalizedCrafts.length === 0) return cleaned;
+
+      const labels = language === 'en' ? customizationLabelsEn : customizationLabelsZh;
+      const craftText = normalizedCrafts.map(craft => labels[craft]).join(language === 'en' ? ', ' : '、');
+      const techniqueLine = language === 'en'
+        ? `Customization Techniques: ${craftText}`
+        : `印製工藝：${craftText}`;
+      const onsiteLine = language === 'en'
+        ? 'On-site event laser engraving is available'
+        : '可在活動現場客製化雷雕';
+
+      return [...cleaned, techniqueLine, ...(onsiteCustomization === 'Y' ? [onsiteLine] : [])];
     };
     const buildProductHandle = (product = {}) => {
       const data = product.finalData || product.aiResult || {};
@@ -182,8 +214,17 @@
       const category = getShoplineCategory(product, data);
       const mainImageUrls = normalizeUrlList(data.main_image_urls, data.main_image_url, Number.MAX_SAFE_INTEGER);
       const additionalImageUrls = normalizeUrlList(data.additional_image_urls, data.additional_images, Number.MAX_SAFE_INTEGER);
-      const summaryZh = buildSummary(data.product_highlights_zh);
-      const summaryEn = buildSummary(data.product_highlights_en);
+      const crafts = normalizeCustomizationCrafts(
+        data.customization_crafts,
+        data.customization_craft,
+        data.requested_customization,
+        product.customOptionList,
+        product.customizationCraft,
+        product.customOptions
+      );
+      const onsiteCustomization = data.onsite_customization || product.onsiteCustomization || 'N';
+      const summaryZh = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh'));
+      const summaryEn = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en'));
 
       if (product.archived) issues.push('商品已封存');
       if (!product.finalData) issues.push('尚未保存人工確認版本');
@@ -204,14 +245,23 @@
 
     const buildShoplineRow = (product = {}) => {
       const data = getWorkingData(product);
+      const crafts = normalizeCustomizationCrafts(
+        data.customization_crafts,
+        data.customization_craft,
+        data.requested_customization,
+        product.customOptionList,
+        product.customizationCraft,
+        product.customOptions
+      );
+      const onsiteCustomization = data.onsite_customization || product.onsiteCustomization || 'N';
       const row = Array(shoplineHeadersEn.length).fill('');
       row[0] = buildProductHandle(product);
       row[1] = String(data.title_en || '').trim();
       row[2] = String(data.title_zh || '').trim();
-      row[3] = buildSummary(data.product_highlights_en);
-      row[4] = buildSummary(data.product_highlights_zh);
-      row[5] = String(data.description_en || '').trim();
-      row[6] = String(data.description_zh || '').trim();
+      row[3] = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en'));
+      row[4] = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh'));
+      row[5] = stripOnsiteCopy(data.description_en, 'en');
+      row[6] = stripOnsiteCopy(data.description_zh, 'zh');
       row[7] = String(data.seo_title_en || '').trim();
       row[8] = String(data.seo_title_zh || '').trim();
       row[9] = String(data.seo_description_en || '').trim();
@@ -354,9 +404,29 @@
 
       const handleMainCategoryChange = (e) => { const selectedMain = e.target.value; setMainCategory(selectedMain); setSubCategory(categoryTree[selectedMain][0] || ''); };
       const toggleCustomizationCraft = (craft) => {
-        setCustomizationCrafts(previous => previous.includes(craft)
-          ? previous.filter(item => item !== craft)
-          : [...previous, craft]);
+        const nextCrafts = customizationCrafts.includes(craft)
+          ? customizationCrafts.filter(item => item !== craft)
+          : [...customizationCrafts, craft];
+        setCustomizationCrafts(nextCrafts);
+        setAiResult(current => current
+          ? {
+              ...current,
+              product_highlights_zh: applyCustomizationHighlights(current.product_highlights_zh, nextCrafts, onsiteCustomization, 'zh'),
+              product_highlights_en: applyCustomizationHighlights(current.product_highlights_en, nextCrafts, onsiteCustomization, 'en')
+            }
+          : current);
+      };
+      const handleImportOnsiteCustomization = (value) => {
+        setOnsiteCustomization(value);
+        setAiResult(current => current
+          ? {
+              ...current,
+              product_highlights_zh: applyCustomizationHighlights(current.product_highlights_zh, customizationCrafts, value, 'zh'),
+              product_highlights_en: applyCustomizationHighlights(current.product_highlights_en, customizationCrafts, value, 'en'),
+              description_zh: stripOnsiteCopy(current.description_zh, 'zh'),
+              description_en: stripOnsiteCopy(current.description_en, 'en')
+            }
+          : current);
       };
 
       const handleSpecImageUpload = async (e) => {
@@ -382,8 +452,30 @@
 
           if (docData.status === 'completed' && docData.aiResult) {
             const originalDraft = cloneData(docData.aiResult);
+            const previewCrafts = normalizeCustomizationCrafts(
+              docData.finalData?.customization_crafts,
+              docData.customOptionList,
+              docData.customizationCraft,
+              docData.customOptions
+            );
+            const previewOnsite = docData.finalData?.onsite_customization || docData.onsiteCustomization || 'N';
+            const normalizedResult = cloneData(docData.finalData || originalDraft);
+            normalizedResult.product_highlights_zh = applyCustomizationHighlights(
+              normalizedResult.product_highlights_zh,
+              previewCrafts,
+              previewOnsite,
+              'zh'
+            );
+            normalizedResult.product_highlights_en = applyCustomizationHighlights(
+              normalizedResult.product_highlights_en,
+              previewCrafts,
+              previewOnsite,
+              'en'
+            );
+            normalizedResult.description_zh = stripOnsiteCopy(normalizedResult.description_zh, 'zh');
+            normalizedResult.description_en = stripOnsiteCopy(normalizedResult.description_en, 'en');
             setAiDraft(originalDraft);
-            setAiResult(cloneData(docData.finalData || originalDraft));
+            setAiResult(normalizedResult);
             setIsGenerating(false);
             if (!docData.finalData) {
               setSuccessMsg(`✨ AI 處理完成：${docData.aiResult.title_zh}`);
@@ -487,8 +579,20 @@
             customization_craft: customizationCrafts.join('、'),
             customization_crafts: customizationCrafts,
             onsite_customization: onsiteCustomization,
-            description_zh: applyOnsiteCopy(aiResult.description_zh, onsiteCustomization, 'zh'),
-            description_en: applyOnsiteCopy(aiResult.description_en, onsiteCustomization, 'en'),
+            product_highlights_zh: applyCustomizationHighlights(
+              aiResult.product_highlights_zh,
+              customizationCrafts,
+              onsiteCustomization,
+              'zh'
+            ),
+            product_highlights_en: applyCustomizationHighlights(
+              aiResult.product_highlights_en,
+              customizationCrafts,
+              onsiteCustomization,
+              'en'
+            ),
+            description_zh: stripOnsiteCopy(aiResult.description_zh, 'zh'),
+            description_en: stripOnsiteCopy(aiResult.description_en, 'en'),
             product_handle: buildProductHandle({ id: activeJobId }),
             main_image_url: '',
             main_image_urls: [],
@@ -593,11 +697,11 @@
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-2">活動現場客製</label>
-                      <select value={onsiteCustomization} onChange={e => setOnsiteCustomization(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
+                      <select value={onsiteCustomization} onChange={e => handleImportOnsiteCustomization(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
                         <option value="N">不可</option>
                         <option value="Y">可</option>
                       </select>
-                      {onsiteCustomization === 'Y' && <p className="mt-2 text-xs text-green-700">儲存時會在中英文商品描述下方加入現場客製說明。</p>}
+                      {onsiteCustomization === 'Y' && <p className="mt-2 text-xs text-green-700">儲存時會在中英文商品特色加入活動現場客製工藝。</p>}
                     </div>
                   </div>
                 </div>
@@ -654,13 +758,22 @@
       const initialCategory = isValidCategory(parsedCategory.main, parsedCategory.sub)
         ? parsedCategory
         : { main: fallbackMain, sub: categoryTree[fallbackMain][0] || '' };
+      const initialCrafts = normalizeCustomizationCrafts(
+        baseData.customization_crafts,
+        baseData.customization_craft,
+        baseData.requested_customization,
+        product.customOptionList,
+        product.customizationCraft,
+        product.customOptions
+      );
+      const initialOnsiteCustomization = baseData.onsite_customization || product.onsiteCustomization || 'N';
       const [formData, setFormData] = useState({
         title_zh: baseData.title_zh || '',
         title_en: baseData.title_en || '',
-        description_zh: baseData.description_zh || '',
-        description_en: baseData.description_en || '',
-        highlights_zh: joinLines(baseData.product_highlights_zh),
-        highlights_en: joinLines(baseData.product_highlights_en),
+        description_zh: stripOnsiteCopy(baseData.description_zh, 'zh'),
+        description_en: stripOnsiteCopy(baseData.description_en, 'en'),
+        highlights_zh: joinLines(applyCustomizationHighlights(baseData.product_highlights_zh, initialCrafts, initialOnsiteCustomization, 'zh')),
+        highlights_en: joinLines(applyCustomizationHighlights(baseData.product_highlights_en, initialCrafts, initialOnsiteCustomization, 'en')),
         seo_title_zh: baseData.seo_title_zh || '',
         seo_title_en: baseData.seo_title_en || '',
         seo_description_zh: baseData.seo_description_zh || '',
@@ -672,15 +785,8 @@
         weight: baseData.extracted?.weight || '',
         colors: joinLines(baseData.extracted?.colors),
         target_moq: baseData.target_moq ?? product.moq ?? '',
-        customization_crafts: normalizeCustomizationCrafts(
-          baseData.customization_crafts,
-          baseData.customization_craft,
-          baseData.requested_customization,
-          product.customOptionList,
-          product.customizationCraft,
-          product.customOptions
-        ),
-        onsite_customization: baseData.onsite_customization || product.onsiteCustomization || 'N',
+        customization_crafts: initialCrafts,
+        onsite_customization: initialOnsiteCustomization,
         product_handle: buildProductHandle(product),
         main_image_urls: (() => {
           const urls = normalizeUrlList(baseData.main_image_urls, baseData.main_image_url, MAX_MAIN_IMAGES);
@@ -701,12 +807,17 @@
 
       const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
       const toggleEditorCraft = (craft) => {
-        setFormData(prev => ({
-          ...prev,
-          customization_crafts: prev.customization_crafts.includes(craft)
+        setFormData(prev => {
+          const nextCrafts = prev.customization_crafts.includes(craft)
             ? prev.customization_crafts.filter(item => item !== craft)
-            : [...prev.customization_crafts, craft]
-        }));
+            : [...prev.customization_crafts, craft];
+          return {
+            ...prev,
+            customization_crafts: nextCrafts,
+            highlights_zh: joinLines(applyCustomizationHighlights(prev.highlights_zh, nextCrafts, prev.onsite_customization, 'zh')),
+            highlights_en: joinLines(applyCustomizationHighlights(prev.highlights_en, nextCrafts, prev.onsite_customization, 'en'))
+          };
+        });
       };
       const updateImageUrl = (field, index, value) => {
         setFormData(prev => ({
@@ -732,8 +843,10 @@
         setFormData(prev => ({
           ...prev,
           onsite_customization: value,
-          description_zh: applyOnsiteCopy(prev.description_zh, value, 'zh'),
-          description_en: applyOnsiteCopy(prev.description_en, value, 'en')
+          highlights_zh: joinLines(applyCustomizationHighlights(prev.highlights_zh, prev.customization_crafts, value, 'zh')),
+          highlights_en: joinLines(applyCustomizationHighlights(prev.highlights_en, prev.customization_crafts, value, 'en')),
+          description_zh: stripOnsiteCopy(prev.description_zh, 'zh'),
+          description_en: stripOnsiteCopy(prev.description_en, 'en')
         }));
       };
 
@@ -758,8 +871,13 @@
             },
             body: JSON.stringify({
               title_zh: formData.title_zh.trim(),
-              product_highlights_zh: splitLines(formData.highlights_zh),
-              description_zh: applyOnsiteCopy(formData.description_zh, formData.onsite_customization, 'zh'),
+              product_highlights_zh: applyCustomizationHighlights(
+                formData.highlights_zh,
+                formData.customization_crafts,
+                formData.onsite_customization,
+                'zh'
+              ),
+              description_zh: stripOnsiteCopy(formData.description_zh, 'zh'),
               seo_title_zh: formData.seo_title_zh.trim(),
               seo_description_zh: formData.seo_description_zh.trim()
             })
@@ -772,9 +890,20 @@
           setFormData(prev => ({
             ...prev,
             title_en: translated.title_en || '',
-            highlights_en: joinLines(translated.product_highlights_en),
-            description_zh: applyOnsiteCopy(prev.description_zh, prev.onsite_customization, 'zh'),
-            description_en: applyOnsiteCopy(translated.description_en, prev.onsite_customization, 'en'),
+            highlights_zh: joinLines(applyCustomizationHighlights(
+              prev.highlights_zh,
+              prev.customization_crafts,
+              prev.onsite_customization,
+              'zh'
+            )),
+            highlights_en: joinLines(applyCustomizationHighlights(
+              translated.product_highlights_en,
+              prev.customization_crafts,
+              prev.onsite_customization,
+              'en'
+            )),
+            description_zh: stripOnsiteCopy(prev.description_zh, 'zh'),
+            description_en: stripOnsiteCopy(translated.description_en, 'en'),
             seo_title_en: translated.seo_title_en || '',
             seo_description_en: translated.seo_description_en || ''
           }));
@@ -815,10 +944,20 @@
             ...currentData,
             title_zh: formData.title_zh.trim(),
             title_en: formData.title_en.trim(),
-            description_zh: applyOnsiteCopy(formData.description_zh, formData.onsite_customization, 'zh'),
-            description_en: applyOnsiteCopy(formData.description_en, formData.onsite_customization, 'en'),
-            product_highlights_zh: splitLines(formData.highlights_zh),
-            product_highlights_en: splitLines(formData.highlights_en),
+            description_zh: stripOnsiteCopy(formData.description_zh, 'zh'),
+            description_en: stripOnsiteCopy(formData.description_en, 'en'),
+            product_highlights_zh: applyCustomizationHighlights(
+              formData.highlights_zh,
+              formData.customization_crafts,
+              formData.onsite_customization,
+              'zh'
+            ),
+            product_highlights_en: applyCustomizationHighlights(
+              formData.highlights_en,
+              formData.customization_crafts,
+              formData.onsite_customization,
+              'en'
+            ),
             seo_title_zh: formData.seo_title_zh.trim(),
             seo_title_en: formData.seo_title_en.trim(),
             seo_description_zh: formData.seo_description_zh.trim(),
@@ -929,7 +1068,7 @@
                   <option value="N">不可</option>
                   <option value="Y">可</option>
                 </select>
-                {formData.onsite_customization === 'Y' && <p className="mt-2 text-xs text-green-700">中英文商品描述下方已加入活動現場客製說明。</p>}
+                {formData.onsite_customization === 'Y' && <p className="mt-2 text-xs text-green-700">中英文商品特色已加入活動現場客製工藝。</p>}
               </div>
             </section>
 
@@ -1099,11 +1238,13 @@
         return matchesStatus && (!normalizedSearch || haystack.includes(normalizedSearch));
       });
 
-      const selectableFilteredIds = filteredProducts
-        .filter(product => product.finalData && !product.archived)
-        .map(product => product.id);
+      const selectableFilteredIds = filteredProducts.map(product => product.id);
       const selectedSet = new Set(selectedIds);
       const allFilteredSelected = selectableFilteredIds.length > 0 && selectableFilteredIds.every(id => selectedSet.has(id));
+      const selectedProductsForAction = products.filter(product => selectedSet.has(product.id));
+      const allSelectedArchived = selectedProductsForAction.length > 0
+        && selectedProductsForAction.every(product => product.archived);
+      const bulkArchiveLabel = allSelectedArchived ? '解除封存' : '封存';
 
       const toggleSelection = (productId) => {
         setExportError('');
@@ -1123,29 +1264,40 @@
         }
       };
 
-      const handleArchiveToggle = async (product) => {
-        const data = getWorkingData(product);
-        const title = data.title_zh || data.title_en || product.id;
-        const nextArchived = !product.archived;
-        const actionLabel = nextArchived ? '封存' : '解除封存';
-        if (!window.confirm(`確定要${actionLabel}「${title}」嗎？`)) return;
+      const handleBulkArchiveToggle = async () => {
+        if (selectedProductsForAction.length === 0) {
+          return setError('請先勾選至少一筆商品。');
+        }
+        const unsavedProducts = selectedProductsForAction.filter(product => !product.finalData);
+        if (unsavedProducts.length > 0) {
+          return setError(`封存僅適用於已儲存商品；目前選取內容有 ${unsavedProducts.length} 筆尚未儲存。`);
+        }
 
-        setActionBusyId(product.id);
+        const nextArchived = !allSelectedArchived;
+        const actionLabel = nextArchived ? '封存' : '解除封存';
+        if (!window.confirm(`確定要一次${actionLabel}所選的 ${selectedProductsForAction.length} 筆商品嗎？`)) return;
+
+        setActionBusyId('bulk-archive');
         setError('');
         try {
-          await db.collection('products').doc(product.id).update({
-            archived: nextArchived,
-            catalogStatus: nextArchived ? 'archived' : 'draft',
-            archivedAt: nextArchived ? serverTimestamp() : firebase.firestore.FieldValue.delete(),
-            archivedBy: nextArchived
-              ? {
-                  uid: auth.currentUser?.uid || '',
-                  email: auth.currentUser?.email || ''
-                }
-              : firebase.firestore.FieldValue.delete(),
-            updatedAt: serverTimestamp()
+          const batch = db.batch();
+          selectedProductsForAction.forEach(product => {
+            batch.update(db.collection('products').doc(product.id), {
+              archived: nextArchived,
+              catalogStatus: nextArchived ? 'archived' : 'draft',
+              archivedAt: nextArchived ? serverTimestamp() : firebase.firestore.FieldValue.delete(),
+              archivedBy: nextArchived
+                ? {
+                    uid: auth.currentUser?.uid || '',
+                    email: auth.currentUser?.email || ''
+                  }
+                : firebase.firestore.FieldValue.delete(),
+              updatedAt: serverTimestamp()
+            });
           });
-          setSelectedIds(previous => previous.filter(id => id !== product.id));
+          await batch.commit();
+          setSelectedIds([]);
+          setExportMessage(`✅ 已${actionLabel} ${selectedProductsForAction.length} 筆商品。`);
         } catch (actionError) {
           setError(`${actionLabel}失敗：${actionError.message}`);
         } finally {
@@ -1153,16 +1305,22 @@
         }
       };
 
-      const handleDelete = async (product) => {
-        const data = getWorkingData(product);
-        const title = data.title_zh || data.title_en || product.id;
-        if (!window.confirm(`確定要永久刪除「${title}」嗎？\n\n商品資料刪除後無法復原；原始上傳圖片不會一併刪除。`)) return;
+      const handleBulkDelete = async () => {
+        if (selectedProductsForAction.length === 0) {
+          return setError('請先勾選至少一筆商品。');
+        }
+        if (!window.confirm(`確定要永久刪除所選的 ${selectedProductsForAction.length} 筆商品嗎？\n\n商品資料刪除後無法復原；原始上傳圖片不會一併刪除。`)) return;
 
-        setActionBusyId(product.id);
+        setActionBusyId('bulk-delete');
         setError('');
         try {
-          await db.collection('products').doc(product.id).delete();
-          setSelectedIds(previous => previous.filter(id => id !== product.id));
+          const batch = db.batch();
+          selectedProductsForAction.forEach(product => {
+            batch.delete(db.collection('products').doc(product.id));
+          });
+          await batch.commit();
+          setSelectedIds([]);
+          setExportMessage(`✅ 已永久刪除 ${selectedProductsForAction.length} 筆商品。`);
         } catch (actionError) {
           setError(`刪除失敗：${actionError.message}`);
         } finally {
@@ -1271,12 +1429,19 @@
           <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 flex flex-col lg:flex-row lg:items-center justify-between gap-3 shadow-sm">
             <div>
               <div className="font-bold text-gray-800">已選取 {selectedIds.length} 筆商品</div>
-              <div className="text-xs text-gray-500 mt-1">僅勾選已儲存商品；匯出前會檢查名稱、分類、商品編號與主圖網址。</div>
+              <div className="text-xs text-gray-500 mt-1">可批次封存或刪除；匯出前會檢查儲存狀態、名稱、分類、商品編號與主圖網址。</div>
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={toggleSelectAll} disabled={selectableFilteredIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
                 {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-blue-600"/> : <Square className="w-4 h-4"/>}
                 {allFilteredSelected ? '取消全選' : '全選篩選結果'}
+              </button>
+              <button onClick={handleBulkArchiveToggle} disabled={selectedIds.length === 0 || Boolean(actionBusyId)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
+                {allSelectedArchived ? <ArchiveRestore className="w-4 h-4"/> : <Archive className="w-4 h-4"/>}
+                {bulkArchiveLabel}
+              </button>
+              <button onClick={handleBulkDelete} disabled={selectedIds.length === 0 || Boolean(actionBusyId)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40">
+                <Trash2 className="w-4 h-4"/> 刪除
               </button>
               <button onClick={handleExport} disabled={selectedIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300">
                 <Download className="w-4 h-4"/> 匯出 SHOPLINE Excel
@@ -1318,12 +1483,11 @@
                       const data = getWorkingData(product);
                       const state = getProductState(product);
                       const exportIssues = getExportIssues(product);
-                      const canSelect = Boolean(product.finalData);
                       const isSelected = selectedSet.has(product.id);
                       return (
                         <tr key={product.id} className="hover:bg-gray-50">
                           <td className="px-4 py-4">
-                            <button onClick={() => toggleSelection(product.id)} disabled={!canSelect} title={canSelect ? '選取商品' : '請先保存商品'} className="p-1 disabled:opacity-25 disabled:cursor-not-allowed">
+                            <button onClick={() => toggleSelection(product.id)} title="選取商品" className="p-1">
                               {isSelected ? <CheckSquare className="w-5 h-5 text-blue-600"/> : <Square className="w-5 h-5 text-gray-400"/>}
                             </button>
                           </td>
@@ -1352,12 +1516,6 @@
                             <div className="inline-flex items-center justify-end gap-1.5">
                               <button onClick={() => setSelectedProductId(product.id)} disabled={!product.aiResult && !product.finalData} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
                                 <Edit3 className="w-4 h-4"/> 編輯
-                              </button>
-                              <button onClick={() => handleArchiveToggle(product)} disabled={actionBusyId === product.id || !product.finalData} title={product.archived ? '解除封存' : '封存商品'} className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-800 disabled:opacity-30">
-                                {product.archived ? <ArchiveRestore className="w-4 h-4"/> : <Archive className="w-4 h-4"/>}
-                              </button>
-                              <button onClick={() => handleDelete(product)} disabled={actionBusyId === product.id} title="永久刪除商品" className="p-2 rounded-lg border border-red-100 text-red-500 hover:bg-red-50 disabled:opacity-30">
-                                <Trash2 className="w-4 h-4"/>
                               </button>
                             </div>
                           </td>
