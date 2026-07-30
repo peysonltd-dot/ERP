@@ -29,7 +29,7 @@
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
       Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore, ChevronDown, ChevronRight,
-      FolderTree, ArrowUp, ArrowDown, Power, Pencil
+      FolderTree, ArrowUp, ArrowDown, Power, Pencil, RefreshCw
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
@@ -189,7 +189,7 @@
       "壓印": "Debossing"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.6.0";
+    const ERP_VERSION = "2.6.1";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -286,7 +286,7 @@
     };
     const stripManagedHighlights = (items, language) => {
       const managedPattern = language === 'en'
-        ? /^(?:customization|customisation|printing|decoration)\s+(?:techniques?|methods?|crafts?)\s*[:：]|^(?:available\s+for\s+)?on-site\s+event\s+(?:customization|customisation|personalization|laser\s+engraving)/i
+        ? /^(?:(?:customization|customisation|printing|decoration|branding)\s+(?:techniques?|methods?|crafts?)|branding\s+method)\s*[:：]|^(?:available\s+for\s+)?on-site(?:\s+event)?\s+(?:customization|customisation|personalization|laser\s+engraving)/i
         : /^(?:印製工藝|印刷工藝|客製工藝|客製方式)\s*[:：]|^可在活動現場客製化|^(?:此|本)商品(?:可提供|支援)活動現場客製/;
       return (Array.isArray(items) ? items : splitLines(items))
         .map(item => String(item || '').replace(/^[・•◆※\-]\s*/, '').trim())
@@ -300,13 +300,10 @@
       const labels = language === 'en' ? customizationLabelsEn : customizationLabelsZh;
       const craftText = normalizedCrafts.map(craft => labels[craft]).join(language === 'en' ? ', ' : '、');
       const techniqueLine = language === 'en'
-        ? `Customization Techniques: ${craftText}`
-        : `印製工藝：${craftText}`;
-      const onsiteLine = language === 'en'
-        ? 'On-site event laser engraving is available'
-        : '可在活動現場客製化雷雕';
+        ? `Customization: ${craftText}${onsiteCustomization === 'Y' ? ' (On-site Available)' : ''}`
+        : `印製工藝：${craftText}${onsiteCustomization === 'Y' ? '（可現場客製）' : ''}`;
 
-      return [...cleaned, techniqueLine, ...(onsiteCustomization === 'Y' ? [onsiteLine] : [])];
+      return [...cleaned, techniqueLine];
     };
     const buildProductHandle = (product = {}) => {
       const data = product.finalData || product.aiResult || {};
@@ -427,6 +424,45 @@
     };
 
     const getWorkingData = (product = {}) => cloneData(product.finalData || product.aiResult || {});
+
+    const serializeFirestoreValue = (value) => {
+      if (value === null || value === undefined) return value ?? null;
+      if (Array.isArray(value)) return value.map(serializeFirestoreValue);
+      if (typeof value !== 'object') return value;
+      if (typeof value.toDate === 'function' && Number.isFinite(value.seconds)) {
+        return {
+          __firestoreType: 'timestamp',
+          iso: value.toDate().toISOString(),
+          seconds: value.seconds,
+          nanoseconds: value.nanoseconds || 0
+        };
+      }
+      if (typeof value.path === 'string' && value.firestore) {
+        return { __firestoreType: 'reference', path: value.path };
+      }
+      if (Number.isFinite(value.latitude) && Number.isFinite(value.longitude)) {
+        return {
+          __firestoreType: 'geopoint',
+          latitude: value.latitude,
+          longitude: value.longitude
+        };
+      }
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, serializeFirestoreValue(item)])
+      );
+    };
+
+    const downloadJsonFile = (filename, payload) => {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    };
 
     const formatDate = (timestamp) => {
       if (!timestamp) return '—';
@@ -1341,9 +1377,46 @@
         categorySub: initialCategory.sub
       });
       const [isSaving, setIsSaving] = useState(false);
+      const [isSyncingContent, setIsSyncingContent] = useState(false);
       const [isSyncingEnglish, setIsSyncingEnglish] = useState(false);
       const [message, setMessage] = useState('');
       const [error, setError] = useState('');
+
+      const previewFinalData = {
+        ...getWorkingData(product),
+        title_zh: formData.title_zh.trim(),
+        title_en: formData.title_en.trim(),
+        product_highlights_zh: applyCustomizationHighlights(
+          formData.highlights_zh,
+          formData.customization_crafts,
+          formData.onsite_customization,
+          'zh'
+        ),
+        product_highlights_en: applyCustomizationHighlights(
+          formData.highlights_en,
+          formData.customization_crafts,
+          formData.onsite_customization,
+          'en'
+        ),
+        category: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
+        product_handle: formData.product_handle.trim(),
+        main_image_urls: normalizeUrlList(formData.main_image_urls, '', Number.MAX_SAFE_INTEGER),
+        additional_image_urls: normalizeUrlList(formData.additional_image_urls, '', Number.MAX_SAFE_INTEGER),
+        customization_crafts: formData.customization_crafts,
+        onsite_customization: formData.onsite_customization
+      };
+      const previewProduct = {
+        ...product,
+        finalData: previewFinalData,
+        categoryMain: formData.categoryMain,
+        categorySub: formData.categorySub,
+        productHandle: formData.product_handle.trim(),
+        customOptionList: formData.customization_crafts,
+        onsiteCustomization: formData.onsite_customization
+      };
+      const previewExportIssues = getExportIssues(previewProduct, categoryCatalog);
+      const previewSummaryZhLength = buildSummary(previewFinalData.product_highlights_zh).length;
+      const previewSummaryEnLength = buildSummary(previewFinalData.product_highlights_en).length;
 
       const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
       const toggleEditorCraft = (craft) => {
@@ -1388,6 +1461,86 @@
           description_zh: stripOnsiteCopy(prev.description_zh, 'zh'),
           description_en: stripOnsiteCopy(prev.description_en, 'en')
         }));
+      };
+
+      const handleContentSync = async () => {
+        if (!formData.title_zh.trim()) {
+          return setError('請先填寫繁中商品名稱，再執行同步處理。');
+        }
+        if (formData.customization_crafts.length === 0) {
+          return setError('請至少選擇一項客製工藝。');
+        }
+
+        setIsSyncingContent(true);
+        setError('');
+        setMessage('');
+
+        try {
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error('登入狀態已失效，請重新登入。');
+
+          const response = await fetch(`${BACKEND_URL}/api/sync-product-content`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              title_zh: formData.title_zh.trim(),
+              category: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
+              target_moq: String(formData.target_moq || '').trim(),
+              specifications: {
+                material: formData.material.trim(),
+                dimensions: formData.dimensions.trim(),
+                capacity: formData.capacity.trim(),
+                weight: formData.weight.trim(),
+                colors: splitLines(formData.colors)
+              },
+              customization_crafts: formData.customization_crafts,
+              onsite_customization: formData.onsite_customization,
+              current_copy: {
+                product_highlights_zh: stripManagedHighlights(formData.highlights_zh, 'zh'),
+                description_zh: stripOnsiteCopy(formData.description_zh, 'zh'),
+                seo_title_zh: formData.seo_title_zh.trim(),
+                seo_description_zh: formData.seo_description_zh.trim(),
+                seo_keywords: splitComma(formData.seo_keywords)
+              }
+            })
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(payload.error || `同步處理失敗（HTTP ${response.status}）`);
+
+          const synced = payload.result || {};
+          setFormData(prev => ({
+            ...prev,
+            title_en: synced.title_en || '',
+            highlights_zh: joinLines(applyCustomizationHighlights(
+              synced.product_highlights_zh,
+              prev.customization_crafts,
+              prev.onsite_customization,
+              'zh'
+            )),
+            highlights_en: joinLines(applyCustomizationHighlights(
+              synced.product_highlights_en,
+              prev.customization_crafts,
+              prev.onsite_customization,
+              'en'
+            )),
+            description_zh: stripOnsiteCopy(synced.description_zh, 'zh'),
+            description_en: stripOnsiteCopy(synced.description_en, 'en'),
+            seo_title_zh: synced.seo_title_zh || '',
+            seo_title_en: synced.seo_title_en || '',
+            seo_description_zh: synced.seo_description_zh || '',
+            seo_description_en: synced.seo_description_en || '',
+            seo_keywords: Array.isArray(synced.seo_keywords) ? synced.seo_keywords.join(', ') : ''
+          }));
+          setMessage('✅ 上方最新資料已同步至中英文商品文案與 SEO；請確認預覽後按「儲存修改」。');
+        } catch (syncError) {
+          setError(`同步處理失敗：${syncError.message}`);
+        } finally {
+          setIsSyncingContent(false);
+        }
       };
 
       const handleEnglishSync = async () => {
@@ -1560,7 +1713,7 @@
 
       return (
         <div className="p-8 max-w-6xl mx-auto animate-in fade-in duration-200">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3">
             <div className="flex items-center gap-3">
               <button onClick={onBack} className="p-2 rounded-lg border border-gray-200 bg-white hover:bg-gray-50"><ArrowLeft className="w-5 h-5"/></button>
               <div>
@@ -1568,13 +1721,40 @@
                 <p className="text-xs text-gray-400 mt-1">Firestore ID：{product.id}</p>
               </div>
             </div>
-            <button onClick={handleSave} disabled={isSaving} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center gap-2">
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} 儲存修改
-            </button>
+            <div className="grid grid-cols-2 sm:flex items-center gap-2">
+              <button
+                onClick={handleContentSync}
+                disabled={isSaving || isSyncingContent || isSyncingEnglish}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center gap-2"
+                title="依上方最新名稱、規格與客製方式，更新下方中英文文案與 SEO"
+              >
+                {isSyncingContent ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>}
+                {isSyncingContent ? '同步處理中…' : '同步處理'}
+              </button>
+              <button onClick={handleSave} disabled={isSaving || isSyncingContent || isSyncingEnglish} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center gap-2">
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} 儲存修改
+              </button>
+            </div>
           </div>
+          <p className="mb-6 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-3 py-2">
+            「同步處理」只會更新本頁下方文案預覽，不會自動儲存，也不會直接更新 SHOPLINE。
+          </p>
 
           {error && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div>}
           {message && <div className="mb-4 p-3 bg-green-50 text-green-700 rounded-lg text-sm">{message}</div>}
+          <div className={`mb-4 p-3 rounded-lg border text-sm ${previewExportIssues.length === 0 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+            <div className="font-bold">
+              {previewExportIssues.length === 0 ? '目前資料符合 SHOPLINE 匯出條件' : `目前尚有 ${previewExportIssues.length} 項無法匯出`}
+            </div>
+            {previewExportIssues.length > 0 && (
+              <ul className="mt-1 list-disc pl-5 space-y-0.5">
+                {previewExportIssues.map(issue => <li key={issue}>{issue}</li>)}
+              </ul>
+            )}
+            <div className="mt-1 text-xs opacity-80">
+              商品摘要字數：繁中 {previewSummaryZhLength}/300、英文 {previewSummaryEnLength}/300
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
@@ -1694,11 +1874,11 @@
               <div className="border-b pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-gray-800">商品文案</h3>
-                  <p className="text-xs text-gray-400 mt-1">商品特色採列點式規格；商品描述採敘述式文案。修改繁中後可按「英文同步」。</p>
+                  <p className="text-xs text-gray-400 mt-1">「同步處理」依最新名稱、規格與客製方式更新全部文案；「僅同步英文」適合翻譯人工修改後的繁中內容。</p>
                 </div>
-                <button onClick={handleEnglishSync} disabled={isSyncingEnglish} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white text-sm font-bold">
+                <button onClick={handleEnglishSync} disabled={isSaving || isSyncingContent || isSyncingEnglish} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-100 disabled:text-gray-400 text-indigo-700 text-sm font-bold">
                   {isSyncingEnglish ? <Loader2 className="w-4 h-4 animate-spin"/> : <Languages className="w-4 h-4"/>}
-                  {isSyncingEnglish ? '同步中…' : '英文同步'}
+                  {isSyncingEnglish ? '同步中…' : '僅同步英文'}
                 </button>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1743,6 +1923,7 @@
       const [exportError, setExportError] = useState('');
       const [exportMessage, setExportMessage] = useState('');
       const [actionBusyId, setActionBusyId] = useState('');
+      const [isBackingUp, setIsBackingUp] = useState(false);
 
       useEffect(() => {
         const unsubscribe = db.collection('products')
@@ -1852,6 +2033,58 @@
         }
       };
 
+      const downloadFullProductBackup = async ({ automatic = false } = {}) => {
+        setIsBackingUp(true);
+        if (!automatic) {
+          setError('');
+          setExportError('');
+          setExportMessage('');
+        }
+        try {
+          const [productSnapshot, categorySnapshot] = await Promise.all([
+            db.collection('products').get(),
+            db.collection('settings').doc(CATEGORY_SETTINGS_DOC).get()
+          ]);
+          const exportedAt = new Date();
+          const productDocuments = productSnapshot.docs.map(doc => ({
+            id: doc.id,
+            data: serializeFirestoreValue(doc.data())
+          }));
+          const payload = {
+            backupFormat: 'peyson-erp-firestore-products-v1',
+            erpVersion: ERP_VERSION,
+            firebaseProjectId: firebaseConfig.projectId,
+            exportedAt: exportedAt.toISOString(),
+            exportedBy: {
+              uid: auth.currentUser?.uid || '',
+              email: auth.currentUser?.email || ''
+            },
+            collections: {
+              products: productDocuments,
+              settings: categorySnapshot.exists
+                ? [{ id: categorySnapshot.id, data: serializeFirestoreValue(categorySnapshot.data()) }]
+                : []
+            },
+            counts: {
+              products: productDocuments.length,
+              settings: categorySnapshot.exists ? 1 : 0
+            }
+          };
+          const dateStamp = exportedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+          downloadJsonFile(`Peyson-ERP-Firestore-Backup-${dateStamp}.json`, payload);
+          if (!automatic) {
+            setExportMessage(`✅ 已備份全部 ${productDocuments.length} 筆商品資料與分類設定。`);
+          }
+          return payload;
+        } catch (backupError) {
+          const message = `完整商品資料備份失敗：${backupError.message}`;
+          if (!automatic) setError(message);
+          throw new Error(message);
+        } finally {
+          setIsBackingUp(false);
+        }
+      };
+
       const handleBulkDelete = async () => {
         if (selectedProductsForAction.length === 0) {
           return setError('請先勾選至少一筆商品。');
@@ -1861,6 +2094,7 @@
         setActionBusyId('bulk-delete');
         setError('');
         try {
+          await downloadFullProductBackup({ automatic: true });
           const batch = db.batch();
           selectedProductsForAction.forEach(product => {
             batch.delete(db.collection('products').doc(product.id));
@@ -1979,6 +2213,10 @@
               <div className="text-xs text-gray-500 mt-1">可批次封存或刪除；匯出前會檢查儲存狀態、名稱、分類、商品編號與主圖網址。</div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button onClick={() => downloadFullProductBackup()} disabled={isBackingUp || Boolean(actionBusyId)} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-40">
+                {isBackingUp ? <Loader2 className="w-4 h-4 animate-spin"/> : <Download className="w-4 h-4"/>}
+                備份全部商品
+              </button>
               <button onClick={toggleSelectAll} disabled={selectableFilteredIds.length === 0} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40">
                 {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-blue-600"/> : <Square className="w-4 h-4"/>}
                 {allFilteredSelected ? '取消全選' : '全選篩選結果'}
@@ -2048,7 +2286,12 @@
                           <td className="px-5 py-4">
                             {exportIssues.length === 0
                               ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700"><CheckCircle2 className="w-4 h-4"/> 可匯出</span>
-                              : <span title={exportIssues.join('、')} className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><AlertCircle className="w-4 h-4"/> 缺 {exportIssues.length} 項</span>}
+                              : (
+                                  <div className="max-w-[220px]">
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700"><AlertCircle className="w-4 h-4"/> 缺 {exportIssues.length} 項</span>
+                                    <div className="text-[11px] leading-4 text-amber-800 mt-1">{exportIssues.join('、')}</div>
+                                  </div>
+                                )}
                           </td>
                           <td className="px-5 py-4 text-gray-500 whitespace-nowrap">
                             {product.exportCount
