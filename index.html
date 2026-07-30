@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Peyson 雲端 ERP 系統</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231e3a5f'/%3E%3Cpath d='M19 49V15h16.5C44.3 15 50 20.1 50 28.1S44.3 41.3 35.5 41.3H28V49H19zm9-15.6h6.7c4.2 0 6.5-1.8 6.5-5.2S38.9 23 34.7 23H28v10.4z' fill='white'/%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -66,8 +67,10 @@
     };
     const customizationOptions = ["彩色印刷", "單色印刷", "壓印燙金", "壓印", "雷射雕刻"];
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ONSITE_COPY_ZH = "※ 此商品可提供活動現場客製服務，歡迎洽詢沛森顧問有限公司。";
+    const ONSITE_COPY_ZH = "◆ 此商品可提供活動現場客製服務，歡迎洽詢沛森顧問有限公司。";
     const ONSITE_COPY_EN = "On-site event personalization is available for this product. Please contact Peyson Consulting Co., Ltd. for details.";
+    const MAX_MAIN_IMAGES = 12;
+    const MAX_ADDITIONAL_IMAGES = 20;
 
     const shoplineHeadersEn = [
       "Product Handle*", "Product Name(English)*", "Product Name(Chinese)*", "Product Summary(English)", "Product Summary(Chinese)",
@@ -101,6 +104,13 @@
     const splitLines = (value) => String(value || '').split('\n').map(item => item.trim()).filter(Boolean);
     const splitComma = (value) => String(value || '').split(/[,，\n]/).map(item => item.trim()).filter(Boolean);
     const joinLines = (value) => Array.isArray(value) ? value.join('\n') : '';
+    const normalizeUrlList = (value, legacyValue = '', maxItems = 20) => {
+      const values = Array.isArray(value)
+        ? value
+        : String(value || legacyValue || '').split(/\s+/);
+      return Array.from(new Set(values.map(item => String(item || '').trim()).filter(Boolean))).slice(0, maxItems);
+    };
+    const isValidShoplineImageUrl = (value) => /^https:\/\/[^\s\u3400-\u9fff]+$/i.test(String(value || '').trim());
     const categoryPath = (main, sub) => [SHOPLINE_ROOT_CATEGORY, main, sub].filter(Boolean).join('>');
     const parseCategoryParts = (rawValue) => {
       const parts = String(rawValue || '').split('>').map(item => item.trim()).filter(Boolean);
@@ -112,24 +122,37 @@
       const children = categoryTree[main];
       return children.length === 0 ? !sub : children.includes(sub);
     };
-    const stripOnsiteCopy = (value, copy) => String(value || '')
-      .replace(copy, '')
+    const stripOnsiteCopy = (value, language) => {
+      const patterns = language === 'en'
+        ? [
+            /On-site event (?:personalization|customization) is available for this product\.[^\n]*/gi,
+            /This product (?:is available for|supports) on-site event (?:personalization|customization)\.[^\n]*/gi
+          ]
+        : [
+            /[※◆]?\s*(?:此|本)商品可提供活動現場客製服務[^\n。]*[。]?/g,
+            /[※◆]?\s*(?:此|本)商品支援活動現場客製(?:化)?服務[^\n。]*[。]?/g
+          ];
+      return patterns.reduce((text, pattern) => text.replace(pattern, ''), String(value || ''))
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+    };
     const applyOnsiteCopy = (value, onsiteCustomization, language) => {
       const copy = language === 'en' ? ONSITE_COPY_EN : ONSITE_COPY_ZH;
-      const cleaned = stripOnsiteCopy(value, copy);
+      const cleaned = stripOnsiteCopy(value, language);
       return onsiteCustomization === 'Y' ? [cleaned, copy].filter(Boolean).join('\n\n') : cleaned;
     };
-    const normalizeCustomizationCraft = (value) => {
-      const raw = String(value || '').trim();
-      if (customizationOptions.includes(raw)) return raw;
-      if (/UV|彩色/.test(raw)) return '彩色印刷';
-      if (/網版|單色/.test(raw)) return '單色印刷';
-      if (/燙金|燙銀/.test(raw)) return '壓印燙金';
-      if (/壓印/.test(raw)) return '壓印';
-      if (/雷射|雷雕/.test(raw)) return '雷射雕刻';
-      return '雷射雕刻';
+    const normalizeCustomizationCrafts = (...values) => {
+      const raw = values.flatMap(value => Array.isArray(value) ? value : [value]).filter(Boolean).join('、');
+      const matched = customizationOptions.filter(option => {
+        if (raw.includes(option)) return true;
+        if (option === '彩色印刷') return /UV|彩色/.test(raw);
+        if (option === '單色印刷') return /網版|單色/.test(raw);
+        if (option === '壓印燙金') return /燙金|燙銀/.test(raw);
+        if (option === '壓印') return /(?:^|[、,，/\s])壓印(?:$|[、,，/\s])/.test(raw);
+        if (option === '雷射雕刻') return /雷射|雷雕/.test(raw);
+        return false;
+      });
+      return matched.length > 0 ? matched : ['雷射雕刻'];
     };
     const buildProductHandle = (product = {}) => {
       const data = product.finalData || product.aiResult || {};
@@ -155,7 +178,8 @@
       const issues = [];
       const handle = buildProductHandle(product);
       const category = getShoplineCategory(product, data);
-      const imageUrl = String(data.main_image_url || '').trim();
+      const mainImageUrls = normalizeUrlList(data.main_image_urls, data.main_image_url, Number.MAX_SAFE_INTEGER);
+      const additionalImageUrls = normalizeUrlList(data.additional_image_urls, data.additional_images, Number.MAX_SAFE_INTEGER);
       const summaryZh = buildSummary(data.product_highlights_zh);
       const summaryEn = buildSummary(data.product_highlights_en);
 
@@ -163,11 +187,13 @@
       if (!handle) issues.push('缺少商品編號');
       if (!String(data.title_zh || '').trim() && !String(data.title_en || '').trim()) issues.push('缺少商品名稱');
       if (!category) issues.push('分類名稱或層級不符合 SHOPLINE 官網');
-      if (!imageUrl) {
+      if (mainImageUrls.length === 0) {
         issues.push('缺少商品主圖網址');
-      } else if (!/^https?:\/\/\S+$/i.test(imageUrl)) {
-        issues.push('商品主圖網址格式不正確');
       }
+      if (mainImageUrls.some(url => !isValidShoplineImageUrl(url))) issues.push('商品主圖網址格式不正確');
+      if (additionalImageUrls.some(url => !isValidShoplineImageUrl(url))) issues.push('更多圖片網址格式不正確');
+      if (mainImageUrls.length > MAX_MAIN_IMAGES) issues.push(`商品主圖超過 ${MAX_MAIN_IMAGES} 張`);
+      if (additionalImageUrls.length > MAX_ADDITIONAL_IMAGES) issues.push(`更多圖片超過 ${MAX_ADDITIONAL_IMAGES} 張`);
       if (summaryZh.length > 300) issues.push('繁中商品摘要超過 300 字');
       if (summaryEn.length > 300) issues.push('英文商品摘要超過 300 字');
       return issues;
@@ -190,7 +216,8 @@
       row[11] = Array.isArray(data.seo_keywords) ? data.seo_keywords.join(',') : String(data.seo_keywords || '').trim();
       row[12] = 'N';
       row[17] = data.online_store_status === 'N' ? 'N' : 'Y';
-      row[18] = String(data.main_image_url || '').trim();
+      row[18] = normalizeUrlList(data.main_image_urls, data.main_image_url, MAX_MAIN_IMAGES).join(' ');
+      row[19] = normalizeUrlList(data.additional_image_urls, data.additional_images, MAX_ADDITIONAL_IMAGES).join(' ');
       row[21] = getShoplineCategory(product, data);
       row[25] = String(data.sku || '').trim();
       row[30] = 'N';
@@ -321,10 +348,10 @@
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
       const [subCategory, setSubCategory] = useState(categoryTree[Object.keys(categoryTree)[0]][0] || '');
-      const [customizationCraft, setCustomizationCraft] = useState('雷射雕刻');
+      const [customizationCrafts, setCustomizationCrafts] = useState(['雷射雕刻']);
       const [onsiteCustomization, setOnsiteCustomization] = useState('N');
       
-      const [specImageBase64, setSpecImageBase64] = useState(null);
+      const [specImagesBase64, setSpecImagesBase64] = useState([]);
       const specInputRef = useRef(null);
 
       const [aiModel, setAiModel] = useState('gemini-3.6-flash');
@@ -338,14 +365,23 @@
       const [successMsg, setSuccessMsg] = useState('');
 
       const handleMainCategoryChange = (e) => { const selectedMain = e.target.value; setMainCategory(selectedMain); setSubCategory(categoryTree[selectedMain][0] || ''); };
+      const toggleCustomizationCraft = (craft) => {
+        setCustomizationCrafts(previous => previous.includes(craft)
+          ? previous.filter(item => item !== craft)
+          : [...previous, craft]);
+      };
 
-      const handleSpecImageUpload = (e) => {
-        const file = e.target.files[0];
-        if (file) {
+      const handleSpecImageUpload = async (e) => {
+        const selectedFiles = Array.from(e.target.files || []);
+        if (selectedFiles.length > 5) setError('規格截圖最多上傳 5 張，已先取前 5 張。');
+        const files = selectedFiles.slice(0, 5);
+        const encoded = await Promise.all(files.map(file => new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onloadend = () => setSpecImageBase64({ mimeType: file.type, data: reader.result.split(',')[1] });
+          reader.onload = () => resolve({ name: file.name, mimeType: file.type, data: reader.result.split(',')[1] });
+          reader.onerror = () => reject(new Error(`無法讀取圖片：${file.name}`));
           reader.readAsDataURL(file);
-        }
+        })));
+        setSpecImagesBase64(encoded);
       };
 
       useEffect(() => {
@@ -380,27 +416,30 @@
       }, [activeJobId]);
 
       const handleGenerate = async () => {
-        if (!rawText.trim() && !specImageBase64) return setError('請貼上文字說明或上傳規格圖片！');
+        if (!rawText.trim() && specImagesBase64.length === 0) return setError('請貼上文字說明或上傳規格圖片！');
+        if (customizationCrafts.length === 0) return setError('請至少選擇一項客製工藝。');
         
         setError(''); setSuccessMsg(''); setIsGenerating(true); 
 
         try {
-          let imageUrl = null;
+          let imageUrls = [];
 
-          if (specImageBase64) {
-            setSuccessMsg('上傳圖片至雲端...');
-            const byteCharacters = atob(specImageBase64.data);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
+          if (specImagesBase64.length > 0) {
+            setSuccessMsg(`上傳 ${specImagesBase64.length} 張圖片至雲端...`);
+            imageUrls = await Promise.all(specImagesBase64.map(async (image, index) => {
+              const byteCharacters = atob(image.data);
+              const byteNumbers = new Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
                 byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const blob = new Blob([byteArray], { type: specImageBase64.mimeType });
-
-            const fileName = `specs/${Date.now()}.jpg`;
-            const storageRef = storage.ref().child(fileName);
-            await storageRef.put(blob);
-            imageUrl = await storageRef.getDownloadURL();
+              }
+              const byteArray = new Uint8Array(byteNumbers);
+              const blob = new Blob([byteArray], { type: image.mimeType });
+              const extension = image.mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+              const fileName = `specs/${Date.now()}-${index + 1}.${extension}`;
+              const storageRef = storage.ref().child(fileName);
+              await storageRef.put(blob);
+              return storageRef.getDownloadURL();
+            }));
           }
 
           setSuccessMsg('建立雲端任務中...');
@@ -410,16 +449,16 @@
             status: 'pending',
             catalogStatus: 'ai_processing',
             rawText: rawText,
-            imageUrl: imageUrl,
-            sourceImages: imageUrl ? [imageUrl] : [],
+            imageUrl: imageUrls[0] || null,
+            sourceImages: imageUrls,
             moq: Number(moq) || 0,
             category: selectedCategoryPath,
             categoryMain: mainCategory,
             categorySub: subCategory,
             categoryPath: selectedCategoryPath,
-            customOptions: customizationCraft,
-            customOptionList: [customizationCraft],
-            customizationCraft,
+            customOptions: customizationCrafts.join('、'),
+            customOptionList: customizationCrafts,
+            customizationCraft: customizationCrafts.join('、'),
             onsiteCustomization,
             aiModel: aiModel,
             createdBy: {
@@ -435,7 +474,7 @@
           setAiResult(null);
           setAiDraft(null);
           setRawText('');
-          setSpecImageBase64(null);
+          setSpecImagesBase64([]);
           if (specInputRef.current) specInputRef.current.value = '';
           setSuccessMsg('✅ 任務已送交雲端，正在等待 AI 完成。');
 
@@ -456,13 +495,16 @@
             ...cloneData(aiResult),
             category: categoryPath(mainCategory, subCategory),
             target_moq: Number(moq) || 0,
-            requested_customization: customizationCraft,
-            customization_craft: customizationCraft,
+            requested_customization: customizationCrafts.join('、'),
+            customization_craft: customizationCrafts.join('、'),
+            customization_crafts: customizationCrafts,
             onsite_customization: onsiteCustomization,
             description_zh: applyOnsiteCopy(aiResult.description_zh, onsiteCustomization, 'zh'),
             description_en: applyOnsiteCopy(aiResult.description_en, onsiteCustomization, 'en'),
             product_handle: buildProductHandle({ id: activeJobId }),
             main_image_url: '',
+            main_image_urls: [],
+            additional_image_urls: [],
             online_store_status: 'Y'
           };
 
@@ -474,9 +516,9 @@
             categorySub: subCategory,
             categoryPath: categoryPath(mainCategory, subCategory),
             moq: Number(moq) || 0,
-            customOptions: customizationCraft,
-            customOptionList: [customizationCraft],
-            customizationCraft,
+            customOptions: customizationCrafts.join('、'),
+            customOptionList: customizationCrafts,
+            customizationCraft: customizationCrafts.join('、'),
             onsiteCustomization,
             savedBy: {
               uid: auth.currentUser?.uid || '',
@@ -523,9 +565,17 @@
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
               <div className="bg-gray-50 px-6 py-4 border-b border-gray-200 font-bold text-gray-700 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-500"/> 1. 輸入商品基礎資料</div>
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
-                <div><label className="block text-sm font-bold text-gray-700 mb-2">1688 原始說明 (文字)</label><textarea value={rawText} onChange={e => setRawText(e.target.value)} className="w-full h-32 p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="將廠商的規格說明直接貼在這裡..."/></div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">1688 原始說明（文字）</label>
+                  <textarea value={rawText} onChange={e => setRawText(e.target.value)} className="w-full h-32 p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請貼上商品名稱、材質、尺寸、容量、顏色與包裝等文字資料..."/>
+                  <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">目前不會自動開啟 1688 商品頁；只貼網址不等於匯入網頁內容。請另外貼上規格文字或上傳清晰參數截圖。</p>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-bold text-gray-700 mb-2">規格截圖 (自動上傳雲端)</label><input type="file" ref={specInputRef} onChange={handleSpecImageUpload} accept="image/*" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/></div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">規格截圖（最多 5 張）</label>
+                    <input type="file" multiple ref={specInputRef} onChange={handleSpecImageUpload} accept="image/*" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/>
+                    {specImagesBase64.length > 0 && <p className="mt-2 text-xs text-green-700">已選擇 {specImagesBase64.length} 張：{specImagesBase64.map(image => image.name).join('、')}</p>}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
                   <div className="space-y-4">
@@ -542,10 +592,16 @@
                   </div>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">客製工藝</label>
-                      <select value={customizationCraft} onChange={e => setCustomizationCraft(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
-                        {customizationOptions.map(option => <option key={option} value={option}>{option}</option>)}
-                      </select>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">客製工藝（可複選）</label>
+                      <div className="rounded-xl border border-gray-300 bg-white p-2 space-y-1">
+                        {customizationOptions.map(option => (
+                          <label key={option} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer text-sm">
+                            <input type="checkbox" checked={customizationCrafts.includes(option)} onChange={() => toggleCustomizationCraft(option)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                            <span>{option}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-blue-600">已選：{customizationCrafts.join('、') || '尚未選擇'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-2">活動現場客製</label>
@@ -628,10 +684,24 @@
         colors: joinLines(baseData.extracted?.colors),
         packaging: baseData.extracted?.packaging || '',
         target_moq: baseData.target_moq ?? product.moq ?? '',
-        requested_customization: normalizeCustomizationCraft(baseData.customization_craft || baseData.requested_customization || product.customizationCraft || product.customOptions),
+        customization_crafts: normalizeCustomizationCrafts(
+          baseData.customization_crafts,
+          baseData.customization_craft,
+          baseData.requested_customization,
+          product.customOptionList,
+          product.customizationCraft,
+          product.customOptions
+        ),
         onsite_customization: baseData.onsite_customization || product.onsiteCustomization || 'N',
         product_handle: buildProductHandle(product),
-        main_image_url: baseData.main_image_url || '',
+        main_image_urls: (() => {
+          const urls = normalizeUrlList(baseData.main_image_urls, baseData.main_image_url, MAX_MAIN_IMAGES);
+          return urls.length > 0 ? urls : [''];
+        })(),
+        additional_image_urls: (() => {
+          const urls = normalizeUrlList(baseData.additional_image_urls, baseData.additional_images, MAX_ADDITIONAL_IMAGES);
+          return urls.length > 0 ? urls : [''];
+        })(),
         online_store_status: baseData.online_store_status === 'N' ? 'N' : 'Y',
         categoryMain: initialCategory.main,
         categorySub: initialCategory.sub
@@ -642,6 +712,31 @@
       const [error, setError] = useState('');
 
       const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+      const toggleEditorCraft = (craft) => {
+        setFormData(prev => ({
+          ...prev,
+          customization_crafts: prev.customization_crafts.includes(craft)
+            ? prev.customization_crafts.filter(item => item !== craft)
+            : [...prev.customization_crafts, craft]
+        }));
+      };
+      const updateImageUrl = (field, index, value) => {
+        setFormData(prev => ({
+          ...prev,
+          [field]: prev[field].map((item, itemIndex) => itemIndex === index ? value : item)
+        }));
+      };
+      const addImageUrlField = (field, maxItems) => {
+        setFormData(prev => prev[field].length >= maxItems
+          ? prev
+          : { ...prev, [field]: [...prev[field], ''] });
+      };
+      const removeImageUrlField = (field, index) => {
+        setFormData(prev => {
+          const remaining = prev[field].filter((_, itemIndex) => itemIndex !== index);
+          return { ...prev, [field]: remaining.length > 0 ? remaining : [''] };
+        });
+      };
       const handleCategoryMain = (main) => {
         setFormData(prev => ({ ...prev, categoryMain: main, categorySub: categoryTree[main]?.[0] || '' }));
       };
@@ -710,8 +805,16 @@
         if (!formData.product_handle.trim()) {
           return setError('商品編號不可留白。');
         }
-        if (formData.main_image_url.trim() && !/^https?:\/\/\S+$/i.test(formData.main_image_url.trim())) {
-          return setError('商品主圖網址需為完整的 http:// 或 https:// 網址，且不能包含空格。');
+        if (formData.customization_crafts.length === 0) return setError('請至少選擇一項客製工藝。');
+        const mainImageUrls = normalizeUrlList(formData.main_image_urls, '', Number.MAX_SAFE_INTEGER);
+        const additionalImageUrls = normalizeUrlList(formData.additional_image_urls, '', Number.MAX_SAFE_INTEGER);
+        if (mainImageUrls.length > MAX_MAIN_IMAGES) return setError(`商品主要圖片最多 ${MAX_MAIN_IMAGES} 張。`);
+        if (additionalImageUrls.length > MAX_ADDITIONAL_IMAGES) return setError(`更多圖片最多 ${MAX_ADDITIONAL_IMAGES} 張。`);
+        if (mainImageUrls.some(url => !isValidShoplineImageUrl(url))) {
+          return setError('商品主要圖片網址須以 https:// 開頭，且不能包含空格或中文字。');
+        }
+        if (additionalImageUrls.some(url => !isValidShoplineImageUrl(url))) {
+          return setError('更多圖片網址須以 https:// 開頭，且不能包含空格或中文字。');
         }
 
         setIsSaving(true);
@@ -743,11 +846,14 @@
             },
             category: categoryPath(formData.categoryMain, formData.categorySub),
             target_moq: Number(formData.target_moq) || 0,
-            requested_customization: formData.requested_customization.trim(),
-            customization_craft: formData.requested_customization.trim(),
+            requested_customization: formData.customization_crafts.join('、'),
+            customization_craft: formData.customization_crafts.join('、'),
+            customization_crafts: formData.customization_crafts,
             onsite_customization: formData.onsite_customization,
             product_handle: formData.product_handle.trim(),
-            main_image_url: formData.main_image_url.trim(),
+            main_image_url: mainImageUrls[0] || '',
+            main_image_urls: mainImageUrls,
+            additional_image_urls: additionalImageUrls,
             online_store_status: formData.online_store_status
           };
 
@@ -760,9 +866,9 @@
             categoryPath: categoryPath(formData.categoryMain, formData.categorySub),
             productHandle: formData.product_handle.trim(),
             moq: Number(formData.target_moq) || 0,
-            customOptions: formData.requested_customization.trim(),
-            customOptionList: [formData.requested_customization.trim()],
-            customizationCraft: formData.requested_customization.trim(),
+            customOptions: formData.customization_crafts.join('、'),
+            customOptionList: formData.customization_crafts,
+            customizationCraft: formData.customization_crafts.join('、'),
             onsiteCustomization: formData.onsite_customization,
             savedBy: {
               uid: auth.currentUser?.uid || '',
@@ -818,10 +924,15 @@
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
                 <div>
-                  <label className={labelClass}>客製工藝</label>
-                  <select className={fieldClass} value={formData.requested_customization} onChange={e => updateField('requested_customization', e.target.value)}>
-                    {customizationOptions.map(option => <option key={option} value={option}>{option}</option>)}
-                  </select>
+                  <label className={labelClass}>客製工藝（可複選）</label>
+                  <div className="rounded-lg border border-gray-200 bg-white p-2 space-y-1">
+                    {customizationOptions.map(option => (
+                      <label key={option} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-blue-50 cursor-pointer text-sm">
+                        <input type="checkbox" checked={formData.customization_crafts.includes(option)} onChange={() => toggleEditorCraft(option)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                        <span>{option}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div>
@@ -848,13 +959,57 @@
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
               <div className="border-b pb-3">
                 <h3 className="font-bold text-gray-800">SHOPLINE 發布資料</h3>
-                <p className="text-xs text-gray-400 mt-1">商品編號由 ERP 自動產生；主圖網址未填時可保存，但會阻擋批次匯出。</p>
+                <p className="text-xs text-gray-400 mt-1">主要圖片可填 1–12 張，更多圖片最多 20 張；匯出時各組網址會依 SHOPLINE 規格用單一空格合併。</p>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div><label className={labelClass}>商品編號（Product Handle）</label><input className={fieldClass} value={formData.product_handle} onChange={e => updateField('product_handle', e.target.value)}/></div>
-                <div className="lg:col-span-2"><label className={labelClass}>商品主圖網址（必填後才能匯出）</label><input type="url" className={fieldClass} value={formData.main_image_url} onChange={e => updateField('main_image_url', e.target.value)} placeholder="https://..."/></div>
                 <div><label className={labelClass}>網店上架狀態</label><select className={fieldClass} value={formData.online_store_status} onChange={e => updateField('online_store_status', e.target.value)}><option value="Y">Y－上架</option><option value="N">N－下架草稿</option></select></div>
-                <div className="lg:col-span-2 flex items-end"><p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2.5 w-full">價格、特價、成本、庫存、重量與 SKU 在第一版匯出時全部留白。</p></div>
+                <div className="flex items-end"><p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2.5 w-full">價格、特價、成本、庫存、重量與 SKU 在第一版匯出時全部留白。</p></div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-5 pt-2">
+                <div>
+                  <label className={labelClass}>第一張主預覽圖</label>
+                  <div className="aspect-square rounded-xl border border-dashed border-gray-300 bg-gray-50 overflow-hidden flex items-center justify-center">
+                    {normalizeUrlList(formData.main_image_urls, '', MAX_MAIN_IMAGES)[0]
+                      ? <img src={normalizeUrlList(formData.main_image_urls, '', MAX_MAIN_IMAGES)[0]} alt="商品主預覽圖" className="w-full h-full object-contain" onLoad={event => { event.currentTarget.style.display = 'block'; }} onError={event => { event.currentTarget.style.display = 'none'; }}/>
+                      : <div className="text-center text-gray-400 px-4"><ImagePlus className="w-8 h-8 mx-auto mb-2"/><span className="text-xs">填入第一個主要圖片網址後顯示</span></div>}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className={labelClass}>主要圖片 URL（至少 1 張才能匯出）</label>
+                      <p className="text-xs text-gray-400">第 1 個有效網址為主預覽圖；最多 {MAX_MAIN_IMAGES} 張。</p>
+                    </div>
+                    <button type="button" onClick={() => addImageUrlField('main_image_urls', MAX_MAIN_IMAGES)} disabled={formData.main_image_urls.length >= MAX_MAIN_IMAGES} className="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-50 disabled:text-gray-300 disabled:border-gray-200">＋ 新增欄位</button>
+                  </div>
+                  {formData.main_image_urls.map((url, index) => (
+                    <div key={`main-${index}`} className="flex items-center gap-2">
+                      <span className="w-7 text-xs font-bold text-gray-400 text-right">{index + 1}</span>
+                      <input type="url" className={fieldClass} value={url} onChange={event => updateImageUrl('main_image_urls', index, event.target.value)} placeholder="https://..."/>
+                      <button type="button" onClick={() => removeImageUrlField('main_image_urls', index)} className="p-2 text-gray-400 hover:text-red-600" title="移除此欄"><X className="w-4 h-4"/></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-gray-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className={labelClass}>更多圖片 URL（選填）</label>
+                    <p className="text-xs text-gray-400">顯示於商品描述下方，最多 {MAX_ADDITIONAL_IMAGES} 張。</p>
+                  </div>
+                  <button type="button" onClick={() => addImageUrlField('additional_image_urls', MAX_ADDITIONAL_IMAGES)} disabled={formData.additional_image_urls.length >= MAX_ADDITIONAL_IMAGES} className="px-3 py-1.5 rounded-lg border border-blue-200 text-blue-700 text-xs font-bold hover:bg-blue-50 disabled:text-gray-300 disabled:border-gray-200">＋ 新增欄位</button>
+                </div>
+                {formData.additional_image_urls.map((url, index) => (
+                  <div key={`additional-${index}`} className="flex items-center gap-2">
+                    <span className="w-7 text-xs font-bold text-gray-400 text-right">{index + 1}</span>
+                    <input type="url" className={fieldClass} value={url} onChange={event => updateImageUrl('additional_image_urls', index, event.target.value)} placeholder="https://..."/>
+                    <button type="button" onClick={() => removeImageUrlField('additional_image_urls', index)} className="p-2 text-gray-400 hover:text-red-600" title="移除此欄"><X className="w-4 h-4"/></button>
+                  </div>
+                ))}
+                <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">網址必須以 https:// 開頭，且單一網址不可包含空格或中文字。</p>
               </div>
             </section>
 
