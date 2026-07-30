@@ -28,7 +28,8 @@
       AlertCircle, Loader2, Building2, ShoppingCart, Trash2, Cloud, Filter, Users, LogOut, 
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
-      Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore, ChevronDown, ChevronRight
+      Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore, ChevronDown, ChevronRight,
+      FolderTree, ArrowUp, ArrowDown, Power, Pencil
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
@@ -51,22 +52,126 @@
     const storage = firebase.storage();
     const auth = firebase.auth();
 
-    // --- SHOPLINE 分類與商品欄位常數 ---
+    // --- SHOPLINE 分類母資料與商品欄位常數 ---
     const SHOPLINE_ROOT_CATEGORY = "所有禮品";
-    const categoryTree = {
-      "餐廚用品": ["開瓶器", "杯墊", "冰塊", "環保餐具"],
-      "水瓶/杯子": ["環保杯", "保溫杯", "馬克杯", "水壺", "酒杯/茶杯"],
-      "包包袋子": ["帆布袋", "飲料提袋", "手提袋", "收納袋", "背包"],
-      "文具 | 商務禮品": ["筆", "金屬筆", "廣告筆", "捲尺 | 尺", "便條紙", "證件套", "文具袋", "資料夾", "辦公周邊", "月曆", "筆記本"],
-      "旅行戶外": ["汽車用品", "行李箱周邊", "旅行插頭", "雨具 | 傘", "風扇", "露營用品"],
-      "家居用品": ["抱枕", "毛毯", "毛巾", "收納"],
-      "電子產品/周邊": ["充電線", "行動電源", "無線充電盤", "手機背繩", "藍芽音響", "卡套", "其他3C", "周邊小物"],
-      "生活小物": ["拼圖", "鑰匙圈", "手機架", "捲尺"],
-      "ESG環保禮品": [],
-      "服飾": ["T恤", "大學T", "帽T", "帽子", "飾品"],
-      "高爾夫專區": [],
-      "禮物包裝": []
+    const CATEGORY_SETTINGS_DOC = "productCategories";
+    const categoryNode = (id, name, children = [], active = true, aliases = []) => ({
+      id,
+      name,
+      shoplineName: name,
+      active,
+      aliases,
+      children
+    });
+    const DEFAULT_CATEGORY_CATALOG = [
+      categoryNode("kitchen", "餐廚用品", [
+        categoryNode("kitchen-opener", "開瓶器"),
+        categoryNode("kitchen-coaster", "杯墊"),
+        categoryNode("kitchen-tableware", "環保餐具"),
+        categoryNode("kitchen-ice", "冰塊")
+      ]),
+      categoryNode("drinkware", "水瓶/杯子", [
+        categoryNode("drinkware-eco", "環保杯"),
+        categoryNode("drinkware-mug", "馬克杯"),
+        categoryNode("drinkware-bottle", "水壺"),
+        categoryNode("drinkware-thermos", "保溫杯"),
+        categoryNode("drinkware-glass", "酒杯/茶杯")
+      ]),
+      categoryNode("bags", "包包袋子", [
+        categoryNode("bags-drink", "飲料提袋"),
+        categoryNode("bags-canvas", "帆布袋"),
+        categoryNode("bags-tote", "手提袋"),
+        categoryNode("bags-storage", "收納袋"),
+        categoryNode("bags-backpack", "背包")
+      ]),
+      categoryNode("stationery", "文具｜商務禮品", [
+        categoryNode("stationery-pen", "筆"),
+        categoryNode("stationery-notebook", "筆記本"),
+        categoryNode("stationery-folder", "資料夾"),
+        categoryNode("stationery-card", "證件套"),
+        categoryNode("stationery-calendar", "月曆"),
+        categoryNode("stationery-note", "便條紙"),
+        categoryNode("stationery-office", "辦公周邊"),
+        categoryNode("stationery-metal-pen", "金屬筆", [], false),
+        categoryNode("stationery-ad-pen", "廣告筆", [], false),
+        categoryNode("stationery-ruler", "捲尺｜尺", [], false, ["捲尺 | 尺"]),
+        categoryNode("stationery-pouch", "文具袋", [], false)
+      ], true, ["文具 | 商務禮品"]),
+      categoryNode("electronics", "電子產品/周邊", [
+        categoryNode("electronics-cable", "充電線"),
+        categoryNode("electronics-powerbank", "行動電源"),
+        categoryNode("electronics-wireless", "無線充電盤"),
+        categoryNode("electronics-speaker", "藍芽音響"),
+        categoryNode("electronics-lanyard", "手機背繩"),
+        categoryNode("electronics-small", "周邊小物"),
+        categoryNode("electronics-other", "其他3C"),
+        categoryNode("electronics-card", "卡套")
+      ]),
+      categoryNode("travel", "旅行戶外", [
+        categoryNode("travel-umbrella", "雨具｜傘", [], true, ["雨具 | 傘"]),
+        categoryNode("travel-fan", "風扇"),
+        categoryNode("travel-luggage", "行李箱周邊"),
+        categoryNode("travel-adapter", "旅行插頭"),
+        categoryNode("travel-car", "汽車用品"),
+        categoryNode("travel-camping", "露營用品")
+      ]),
+      categoryNode("home", "家居用品", [
+        categoryNode("home-blanket", "毛毯"),
+        categoryNode("home-towel", "毛巾"),
+        categoryNode("home-pillow", "抱枕"),
+        categoryNode("home-storage", "收納")
+      ]),
+      categoryNode("lifestyle", "生活小物", [
+        categoryNode("lifestyle-puzzle", "拼圖"),
+        categoryNode("lifestyle-keyring", "鑰匙圈"),
+        categoryNode("lifestyle-tape", "捲尺"),
+        categoryNode("lifestyle-phone", "手機架")
+      ]),
+      categoryNode("apparel", "服飾", [
+        categoryNode("apparel-sweatshirt", "大學T"),
+        categoryNode("apparel-hoodie", "帽T"),
+        categoryNode("apparel-accessory", "飾品"),
+        categoryNode("apparel-hat", "帽子"),
+        categoryNode("apparel-tshirt", "T恤", [], false)
+      ]),
+      categoryNode("esg", "ESG環保禮品"),
+      categoryNode("golf", "高爾夫專區", [], false),
+      categoryNode("packaging", "禮物包裝", [], false)
+    ];
+    const normalizeCategoryCatalog = (value) => {
+      const input = Array.isArray(value) && value.length > 0 ? value : DEFAULT_CATEGORY_CATALOG;
+      return input.map((main, mainIndex) => ({
+        id: String(main.id || `main-${mainIndex + 1}`),
+        name: String(main.name || '').trim(),
+        shoplineName: String(main.shoplineName || main.name || '').trim(),
+        active: main.active !== false,
+        aliases: Array.isArray(main.aliases) ? main.aliases.map(String).filter(Boolean) : [],
+        children: (Array.isArray(main.children) ? main.children : []).map((sub, subIndex) => ({
+          id: String(sub.id || `sub-${mainIndex + 1}-${subIndex + 1}`),
+          name: String(sub.name || '').trim(),
+          shoplineName: String(sub.shoplineName || sub.name || '').trim(),
+          active: sub.active !== false,
+          aliases: Array.isArray(sub.aliases) ? sub.aliases.map(String).filter(Boolean) : [],
+          children: []
+        }))
+      })).filter(main => main.name);
     };
+    const nodeMatches = (node, value) => {
+      const target = String(value || '').trim();
+      return Boolean(target) && [node.name, node.shoplineName, ...(node.aliases || [])].includes(target);
+    };
+    const findMainCategory = (catalog, value) => normalizeCategoryCatalog(catalog).find(main => nodeMatches(main, value));
+    const findSubCategory = (main, value) => (main?.children || []).find(sub => nodeMatches(sub, value));
+    const buildCategoryTree = (catalog, includeInactive = false) => Object.fromEntries(
+      normalizeCategoryCatalog(catalog)
+        .filter(main => includeInactive || main.active)
+        .map(main => [
+          main.name,
+          main.children.filter(sub => includeInactive || sub.active).map(sub => sub.name)
+        ])
+    );
+    const makeCategoryId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const categoryTree = buildCategoryTree(DEFAULT_CATEGORY_CATALOG);
     const customizationOptions = ["彩色印刷", "單色印刷", "壓印燙金", "壓印", "雷射雕刻"];
     const customizationDisplayOrder = ["雷射雕刻", "單色印刷", "彩色印刷", "壓印燙金", "壓印"];
     const customizationLabelsZh = {
@@ -84,7 +189,7 @@
       "壓印": "Debossing"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.5.1";
+    const ERP_VERSION = "2.6.0";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -127,16 +232,30 @@
       return Array.from(new Set(values.map(item => String(item || '').trim()).filter(Boolean))).slice(0, maxItems);
     };
     const isValidShoplineImageUrl = (value) => /^https:\/\/[^\s\u3400-\u9fff]+$/i.test(String(value || '').trim());
-    const categoryPath = (main, sub) => [SHOPLINE_ROOT_CATEGORY, main, sub].filter(Boolean).join('>');
-    const parseCategoryParts = (rawValue) => {
+    const categoryPath = (main, sub, catalog = DEFAULT_CATEGORY_CATALOG) => {
+      const mainNode = findMainCategory(catalog, main);
+      const subNode = findSubCategory(mainNode, sub);
+      return [
+        SHOPLINE_ROOT_CATEGORY,
+        mainNode?.shoplineName || main,
+        subNode?.shoplineName || sub
+      ].filter(Boolean).join('>');
+    };
+    const parseCategoryParts = (rawValue, catalog = DEFAULT_CATEGORY_CATALOG) => {
       const parts = String(rawValue || '').split('>').map(item => item.trim()).filter(Boolean);
       if (parts[0] === SHOPLINE_ROOT_CATEGORY) parts.shift();
-      return { main: parts[0] || '', sub: parts[1] || '' };
+      const mainNode = findMainCategory(catalog, parts[0]);
+      const subNode = findSubCategory(mainNode, parts[1]);
+      return {
+        main: mainNode?.name || parts[0] || '',
+        sub: subNode?.name || parts[1] || ''
+      };
     };
-    const isValidCategory = (main, sub) => {
-      if (!Object.prototype.hasOwnProperty.call(categoryTree, main)) return false;
-      const children = categoryTree[main];
-      return children.length === 0 ? !sub : children.includes(sub);
+    const isValidCategory = (main, sub, catalog = DEFAULT_CATEGORY_CATALOG) => {
+      const mainNode = findMainCategory(catalog, main);
+      if (!mainNode) return false;
+      const children = mainNode.children || [];
+      return children.length === 0 ? !sub : Boolean(findSubCategory(mainNode, sub));
     };
     const stripOnsiteCopy = (value, language) => {
       const patterns = language === 'en'
@@ -203,16 +322,16 @@
       .map(item => `・${item}`)
       .join('\n\n');
 
-    const getShoplineCategory = (product = {}, data = {}) => {
-      const { main, sub } = getCategoryParts(product, data);
-      return isValidCategory(main, sub) ? categoryPath(main, sub) : '';
+    const getShoplineCategory = (product = {}, data = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
+      const { main, sub } = getCategoryParts(product, data, catalog);
+      return isValidCategory(main, sub, catalog) ? categoryPath(main, sub, catalog) : '';
     };
 
-    const getExportIssues = (product = {}) => {
+    const getExportIssues = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
       const data = getWorkingData(product);
       const issues = [];
       const handle = buildProductHandle(product);
-      const category = getShoplineCategory(product, data);
+      const category = getShoplineCategory(product, data, catalog);
       const mainImageUrls = normalizeUrlList(data.main_image_urls, data.main_image_url, Number.MAX_SAFE_INTEGER);
       const additionalImageUrls = normalizeUrlList(data.additional_image_urls, data.additional_images, Number.MAX_SAFE_INTEGER);
       const crafts = normalizeCustomizationCrafts(
@@ -244,7 +363,7 @@
       return issues;
     };
 
-    const buildShoplineRow = (product = {}) => {
+    const buildShoplineRow = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
       const data = getWorkingData(product);
       const crafts = normalizeCustomizationCrafts(
         data.customization_crafts,
@@ -272,7 +391,7 @@
       row[17] = data.online_store_status === 'N' ? 'N' : 'Y';
       row[18] = normalizeUrlList(data.main_image_urls, data.main_image_url, MAX_MAIN_IMAGES).join(' ');
       row[19] = normalizeUrlList(data.additional_image_urls, data.additional_images, MAX_ADDITIONAL_IMAGES).join(' ');
-      row[21] = getShoplineCategory(product, data);
+      row[21] = getShoplineCategory(product, data, catalog);
       row[25] = String(data.sku || '').trim();
       row[30] = 'N';
       return row;
@@ -291,15 +410,20 @@
       return `Peyson-SHOPLINE-${stamp}.xlsx`;
     };
 
-    const getCategoryParts = (product = {}, productData = {}) => {
+    const getCategoryParts = (product = {}, productData = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
       if (product.categoryMain) {
-        return { main: product.categoryMain, sub: product.categorySub || '' };
+        const mainNode = findMainCategory(catalog, product.categoryMain);
+        const subNode = findSubCategory(mainNode, product.categorySub || '');
+        return {
+          main: mainNode?.name || product.categoryMain,
+          sub: subNode?.name || product.categorySub || ''
+        };
       }
 
       const raw = product.categoryPath || productData.category || product.category || '';
-      if (raw.includes('>')) return parseCategoryParts(raw);
+      if (raw.includes('>')) return parseCategoryParts(raw, catalog);
       const [main = '', sub = ''] = String(raw).split(' - ').map(item => item.trim());
-      return { main, sub };
+      return parseCategoryParts([SHOPLINE_ROOT_CATEGORY, main, sub].filter(Boolean).join('>'), catalog);
     };
 
     const getWorkingData = (product = {}) => cloneData(product.finalData || product.aiResult || {});
@@ -380,14 +504,399 @@
     };
 
     // ==========================================
-    // 元件 2：商品建置中心
+    // 元件 2：商品分類管理
     // ==========================================
-    const AIImportView = ({ onOpenLibrary }) => {
+    const CategoryManagementView = ({ catalog, onSave }) => {
+      const normalizedCatalog = normalizeCategoryCatalog(catalog);
+      const [products, setProducts] = useState([]);
+      const [editor, setEditor] = useState(null);
+      const [isSaving, setIsSaving] = useState(false);
+      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        const unsubscribe = db.collection('products').onSnapshot((snapshot) => {
+          setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (snapshotError) => {
+          setError(`商品使用狀態讀取失敗：${snapshotError.message}`);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const usageCount = (main, sub = null) => products.filter(product => {
+        const parts = getCategoryParts(product, getWorkingData(product), normalizedCatalog);
+        if (parts.main !== main.name) return false;
+        return sub ? parts.sub === sub.name : true;
+      }).length;
+
+      const persist = async (nextCatalog, successText) => {
+        setIsSaving(true);
+        setError('');
+        setMessage('');
+        try {
+          await onSave(normalizeCategoryCatalog(nextCatalog));
+          setMessage(`✅ ${successText}`);
+        } catch (saveError) {
+          setError(`分類儲存失敗：${saveError.message}`);
+          throw saveError;
+        } finally {
+          setIsSaving(false);
+        }
+      };
+
+      const migrateProductReferences = async ({
+        oldMainName,
+        oldSubName = '',
+        newMainName,
+        newSubName = '',
+        nextCatalog
+      }) => {
+        const affected = products.filter(product => {
+          const parts = getCategoryParts(product, getWorkingData(product), normalizedCatalog);
+          return parts.main === oldMainName && (!oldSubName || parts.sub === oldSubName);
+        });
+
+        for (let start = 0; start < affected.length; start += 400) {
+          const batch = db.batch();
+          affected.slice(start, start + 400).forEach(product => {
+            const currentData = getWorkingData(product);
+            const currentParts = getCategoryParts(product, currentData, normalizedCatalog);
+            const nextMain = newMainName;
+            const nextSub = oldSubName ? newSubName : currentParts.sub;
+            const nextPath = categoryPath(nextMain, nextSub, nextCatalog);
+            const updateData = {
+              categoryMain: nextMain,
+              categorySub: nextSub,
+              categoryPath: nextPath,
+              category: nextPath,
+              updatedAt: serverTimestamp()
+            };
+            if (product.finalData) {
+              updateData.finalData = { ...cloneData(product.finalData), category: nextPath };
+            }
+            batch.update(db.collection('products').doc(product.id), updateData);
+          });
+          await batch.commit();
+        }
+        return affected.length;
+      };
+
+      const openAddMain = () => setEditor({
+        type: 'main',
+        mode: 'add',
+        mainId: '',
+        subId: '',
+        name: '',
+        shoplineName: '',
+        active: true,
+        shoplineManuallyEdited: false
+      });
+      const openAddSub = (main) => setEditor({
+        type: 'sub',
+        mode: 'add',
+        mainId: main.id,
+        subId: '',
+        name: '',
+        shoplineName: '',
+        active: true,
+        shoplineManuallyEdited: false
+      });
+      const openEdit = (type, main, sub = null) => {
+        const target = sub || main;
+        setEditor({
+          type,
+          mode: 'edit',
+          mainId: main.id,
+          subId: sub?.id || '',
+          name: target.name,
+          shoplineName: target.shoplineName || target.name,
+          active: target.active !== false,
+          shoplineManuallyEdited: true
+        });
+      };
+
+      const handleEditorSave = async () => {
+        const name = String(editor?.name || '').trim();
+        const shoplineName = String(editor?.shoplineName || name).trim();
+        if (!name || !shoplineName) {
+          return setError('分類名稱與 SHOPLINE 對應名稱皆不可空白。');
+        }
+
+        const nextCatalog = cloneData(normalizedCatalog);
+        let migration = null;
+
+        if (editor.type === 'main') {
+          const duplicate = nextCatalog.some(item =>
+            item.id !== editor.mainId && item.name.toLowerCase() === name.toLowerCase()
+          );
+          if (duplicate) return setError('已有相同的第二層分類名稱。');
+          const duplicateShopline = nextCatalog.some(item =>
+            item.id !== editor.mainId && String(item.shoplineName || '').toLowerCase() === shoplineName.toLowerCase()
+          );
+          if (duplicateShopline) return setError('已有相同的第二層 SHOPLINE 對應名稱。');
+
+          if (editor.mode === 'add') {
+            nextCatalog.push(categoryNode(makeCategoryId('main'), name, [], editor.active));
+            nextCatalog[nextCatalog.length - 1].shoplineName = shoplineName;
+          } else {
+            const main = nextCatalog.find(item => item.id === editor.mainId);
+            const oldMainName = main.name;
+            const oldShoplineName = main.shoplineName;
+            if (oldMainName !== name || oldShoplineName !== shoplineName) {
+              main.aliases = Array.from(new Set([...(main.aliases || []), oldMainName, oldShoplineName].filter(Boolean)));
+              migration = {
+                oldMainName,
+                newMainName: name,
+                nextCatalog
+              };
+            }
+            main.name = name;
+            main.shoplineName = shoplineName;
+            main.active = editor.active;
+          }
+        } else {
+          const main = nextCatalog.find(item => item.id === editor.mainId);
+          const duplicate = main.children.some(item =>
+            item.id !== editor.subId && item.name.toLowerCase() === name.toLowerCase()
+          );
+          if (duplicate) return setError('此分類下已有相同的第三層分類名稱。');
+          const duplicateShopline = main.children.some(item =>
+            item.id !== editor.subId && String(item.shoplineName || '').toLowerCase() === shoplineName.toLowerCase()
+          );
+          if (duplicateShopline) return setError('此分類下已有相同的第三層 SHOPLINE 對應名稱。');
+
+          if (editor.mode === 'add') {
+            main.children.push(categoryNode(makeCategoryId('sub'), name, [], editor.active));
+            main.children[main.children.length - 1].shoplineName = shoplineName;
+          } else {
+            const sub = main.children.find(item => item.id === editor.subId);
+            const oldSubName = sub.name;
+            const oldShoplineName = sub.shoplineName;
+            if (oldSubName !== name || oldShoplineName !== shoplineName) {
+              sub.aliases = Array.from(new Set([...(sub.aliases || []), oldSubName, oldShoplineName].filter(Boolean)));
+              migration = {
+                oldMainName: main.name,
+                oldSubName,
+                newMainName: main.name,
+                newSubName: name,
+                nextCatalog
+              };
+            }
+            sub.name = name;
+            sub.shoplineName = shoplineName;
+            sub.active = editor.active;
+          }
+        }
+
+        let catalogSaved = false;
+        try {
+          await persist(nextCatalog, editor.mode === 'add' ? '分類已新增。' : '分類已更新。');
+          catalogSaved = true;
+          let migratedCount = 0;
+          if (migration) {
+            migration.nextCatalog = nextCatalog;
+            migratedCount = await migrateProductReferences(migration);
+          }
+          setEditor(null);
+          if (migratedCount > 0) {
+            setMessage(`✅ 分類已更新，並同步 ${migratedCount} 筆既有商品。`);
+          }
+        } catch (saveError) {
+          if (catalogSaved) {
+            setError(`分類已儲存並保留舊名稱相容性，但既有商品同步未完成：${saveError.message}`);
+          }
+        }
+      };
+
+      const toggleActive = async (main, sub = null) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const nextMain = nextCatalog.find(item => item.id === main.id);
+        const target = sub
+          ? nextMain.children.find(item => item.id === sub.id)
+          : nextMain;
+        target.active = !target.active;
+        try {
+          await persist(nextCatalog, `${target.name}已${target.active ? '啟用' : '停用'}。`);
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const moveItem = async (main, sub, direction) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const list = sub
+          ? nextCatalog.find(item => item.id === main.id).children
+          : nextCatalog;
+        const targetId = sub?.id || main.id;
+        const index = list.findIndex(item => item.id === targetId);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= list.length) return;
+        [list[index], list[nextIndex]] = [list[nextIndex], list[index]];
+        try {
+          await persist(nextCatalog, '分類排序已更新。');
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const deleteItem = async (main, sub = null) => {
+        const used = usageCount(main, sub);
+        if (used > 0) {
+          return setError(`「${sub?.name || main.name}」已有 ${used} 筆商品使用，不可刪除；請改用停用。`);
+        }
+        if (!window.confirm(`確定永久刪除分類「${sub?.name || main.name}」嗎？`)) return;
+
+        const nextCatalog = cloneData(normalizedCatalog);
+        if (sub) {
+          const nextMain = nextCatalog.find(item => item.id === main.id);
+          nextMain.children = nextMain.children.filter(item => item.id !== sub.id);
+        } else {
+          const index = nextCatalog.findIndex(item => item.id === main.id);
+          nextCatalog.splice(index, 1);
+        }
+        try {
+          await persist(nextCatalog, '未使用分類已刪除。');
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const actionButton = "p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed";
+
+      return (
+        <div className="p-8 max-w-[1400px] mx-auto animate-in fade-in duration-200">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <FolderTree className="w-6 h-6 text-blue-600"/> 商品分類管理
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">統一管理商品建置、商品編輯與 SHOPLINE 匯出的三級分類母資料。</p>
+            </div>
+            <button onClick={openAddMain} disabled={isSaving} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300">
+              <Plus className="w-4 h-4"/> 新增第二層分類
+            </button>
+          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+          {message && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{message}</div>}
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
+            <section className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                <div>
+                  <div className="font-bold text-gray-800">第一層：{SHOPLINE_ROOT_CATEGORY}</div>
+                  <div className="text-xs text-gray-500 mt-1">共 {normalizedCatalog.length} 個第二層分類</div>
+                </div>
+                {isSaving && <Loader2 className="w-5 h-5 text-blue-600 animate-spin"/>}
+              </div>
+
+              <div className="divide-y divide-gray-100">
+                {normalizedCatalog.map((main, mainIndex) => (
+                  <div key={main.id} className={main.active ? '' : 'bg-gray-50'}>
+                    <div className="px-5 py-4 flex flex-col lg:flex-row lg:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-gray-800">{main.name}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${main.active ? 'bg-green-50 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                            {main.active ? '啟用' : '停用'}
+                          </span>
+                          <span className="text-xs text-gray-400">{usageCount(main)} 筆商品</span>
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">SHOPLINE：{main.shoplineName}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button className={actionButton} title="上移" onClick={() => moveItem(main, null, -1)} disabled={isSaving || mainIndex === 0}><ArrowUp className="w-4 h-4"/></button>
+                        <button className={actionButton} title="下移" onClick={() => moveItem(main, null, 1)} disabled={isSaving || mainIndex === normalizedCatalog.length - 1}><ArrowDown className="w-4 h-4"/></button>
+                        <button className={actionButton} title="新增第三層分類" onClick={() => openAddSub(main)} disabled={isSaving}><Plus className="w-4 h-4"/></button>
+                        <button className={actionButton} title="編輯" onClick={() => openEdit('main', main)} disabled={isSaving}><Pencil className="w-4 h-4"/></button>
+                        <button className={actionButton} title={main.active ? '停用' : '啟用'} onClick={() => toggleActive(main)} disabled={isSaving}><Power className="w-4 h-4"/></button>
+                        <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除未使用分類" onClick={() => deleteItem(main)} disabled={isSaving}><Trash2 className="w-4 h-4"/></button>
+                      </div>
+                    </div>
+
+                    {main.children.length > 0 && (
+                      <div className="mx-5 mb-4 border border-gray-100 rounded-lg overflow-hidden">
+                        {main.children.map((sub, subIndex) => (
+                          <div key={sub.id} className={`px-4 py-3 flex flex-col md:flex-row md:items-center gap-3 border-b last:border-b-0 border-gray-100 ${sub.active ? 'bg-white' : 'bg-gray-50'}`}>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-medium text-gray-700">{sub.name}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${sub.active ? 'bg-green-50 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{sub.active ? '啟用' : '停用'}</span>
+                                <span className="text-[11px] text-gray-400">{usageCount(main, sub)} 筆</span>
+                              </div>
+                              <div className="text-[11px] text-gray-400 mt-1">SHOPLINE：{sub.shoplineName}</div>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button className={actionButton} title="上移" onClick={() => moveItem(main, sub, -1)} disabled={isSaving || subIndex === 0}><ArrowUp className="w-3.5 h-3.5"/></button>
+                              <button className={actionButton} title="下移" onClick={() => moveItem(main, sub, 1)} disabled={isSaving || subIndex === main.children.length - 1}><ArrowDown className="w-3.5 h-3.5"/></button>
+                              <button className={actionButton} title="編輯" onClick={() => openEdit('sub', main, sub)} disabled={isSaving}><Pencil className="w-3.5 h-3.5"/></button>
+                              <button className={actionButton} title={sub.active ? '停用' : '啟用'} onClick={() => toggleActive(main, sub)} disabled={isSaving}><Power className="w-3.5 h-3.5"/></button>
+                              <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除未使用分類" onClick={() => deleteItem(main, sub)} disabled={isSaving}><Trash2 className="w-3.5 h-3.5"/></button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <aside className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 h-fit xl:sticky xl:top-6">
+              {editor ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-gray-800">
+                      {editor.mode === 'add' ? '新增' : '編輯'}{editor.type === 'main' ? '第二層' : '第三層'}分類
+                    </h3>
+                    <button onClick={() => setEditor(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X className="w-4 h-4"/></button>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">ERP 顯示名稱</label>
+                    <input value={editor.name} onChange={e => setEditor(current => ({ ...current, name: e.target.value, shoplineName: current.shoplineManuallyEdited ? current.shoplineName : e.target.value }))} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">SHOPLINE 對應名稱</label>
+                    <input value={editor.shoplineName} onChange={e => setEditor(current => ({ ...current, shoplineName: e.target.value, shoplineManuallyEdited: true }))} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"/>
+                    <p className="text-xs text-gray-400 mt-1.5">Excel 匯出時使用此名稱；應與官網分類完全一致。</p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" checked={editor.active} onChange={e => setEditor(current => ({ ...current, active: e.target.checked }))} className="rounded border-gray-300 text-blue-600"/>
+                    建立後立即啟用
+                  </label>
+                  <button onClick={handleEditorSave} disabled={isSaving} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300">
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} 儲存分類
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <FolderTree className="w-10 h-10 text-blue-200 mb-3"/>
+                  <h3 className="font-bold text-gray-800">分類管理規則</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-gray-500 list-disc pl-5">
+                    <li>停用後不再出現在新商品的分類選單。</li>
+                    <li>既有商品仍保留原分類與匯出能力。</li>
+                    <li>已被商品使用的分類不可刪除，只能停用。</li>
+                    <li>修改名稱時會同步更新既有商品分類路徑。</li>
+                  </ul>
+                </div>
+              )}
+            </aside>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 元件 3：商品建置中心
+    // ==========================================
+    const AIImportView = ({ onOpenLibrary, categoryCatalog }) => {
+      const selectableCategoryTree = buildCategoryTree(categoryCatalog);
+      const firstMainCategory = Object.keys(selectableCategoryTree)[0] || '';
       const [rawText, setRawText] = useState('');
       const [sourceUrl, setSourceUrl] = useState('');
       const [moq, setMoq] = useState(50);
-      const [mainCategory, setMainCategory] = useState(Object.keys(categoryTree)[0]);
-      const [subCategory, setSubCategory] = useState(categoryTree[Object.keys(categoryTree)[0]][0] || '');
+      const [mainCategory, setMainCategory] = useState(firstMainCategory);
+      const [subCategory, setSubCategory] = useState(selectableCategoryTree[firstMainCategory]?.[0] || '');
       const [customizationCrafts, setCustomizationCrafts] = useState(['雷射雕刻']);
       const [onsiteCustomization, setOnsiteCustomization] = useState('N');
       
@@ -404,7 +913,20 @@
       const [error, setError] = useState('');
       const [successMsg, setSuccessMsg] = useState('');
 
-      const handleMainCategoryChange = (e) => { const selectedMain = e.target.value; setMainCategory(selectedMain); setSubCategory(categoryTree[selectedMain][0] || ''); };
+      useEffect(() => {
+        if (!selectableCategoryTree[mainCategory]) {
+          setMainCategory(firstMainCategory);
+          setSubCategory(selectableCategoryTree[firstMainCategory]?.[0] || '');
+        } else if (subCategory && !selectableCategoryTree[mainCategory].includes(subCategory)) {
+          setSubCategory(selectableCategoryTree[mainCategory][0] || '');
+        }
+      }, [categoryCatalog]);
+
+      const handleMainCategoryChange = (e) => {
+        const selectedMain = e.target.value;
+        setMainCategory(selectedMain);
+        setSubCategory(selectableCategoryTree[selectedMain]?.[0] || '');
+      };
       const toggleCustomizationCraft = (craft) => {
         const nextCrafts = customizationCrafts.includes(craft)
           ? customizationCrafts.filter(item => item !== craft)
@@ -526,7 +1048,7 @@
 
           setSuccessMsg('建立雲端任務中...');
 
-          const selectedCategoryPath = categoryPath(mainCategory, subCategory);
+          const selectedCategoryPath = categoryPath(mainCategory, subCategory, categoryCatalog);
           const docRef = await db.collection('products').add({
             status: 'pending',
             catalogStatus: 'ai_processing',
@@ -576,7 +1098,7 @@
         try {
           const finalData = {
             ...cloneData(aiResult),
-            category: categoryPath(mainCategory, subCategory),
+            category: categoryPath(mainCategory, subCategory, categoryCatalog),
             target_moq: Number(moq) || 0,
             requested_customization: customizationCrafts.join('、'),
             customization_craft: customizationCrafts.join('、'),
@@ -610,7 +1132,7 @@
             catalogStatus: 'draft',
             categoryMain: mainCategory,
             categorySub: subCategory,
-            categoryPath: categoryPath(mainCategory, subCategory),
+            categoryPath: categoryPath(mainCategory, subCategory, categoryCatalog),
             moq: Number(moq) || 0,
             customOptions: customizationCrafts.join('、'),
             customOptionList: customizationCrafts,
@@ -684,11 +1206,11 @@
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-2">SHOPLINE 上架分類</label>
                       <div className="px-3 py-2 mb-2 rounded-lg bg-gray-100 text-xs font-bold text-gray-600">{SHOPLINE_ROOT_CATEGORY}</div>
-                      <select value={mainCategory} onChange={handleMainCategoryChange} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white mb-2">{Object.keys(categoryTree).map(m => <option key={m} value={m}>{m}</option>)}</select>
-                      <select value={subCategory} onChange={e => setSubCategory(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white" disabled={!categoryTree[mainCategory] || categoryTree[mainCategory].length===0}>
-                        {categoryTree[mainCategory]?.length > 0 ? categoryTree[mainCategory].map(s => <option key={s} value={s}>{s}</option>) : <option value="">無第三層分類</option>}
+                      <select value={mainCategory} onChange={handleMainCategoryChange} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white mb-2">{Object.keys(selectableCategoryTree).map(m => <option key={m} value={m}>{m}</option>)}</select>
+                      <select value={subCategory} onChange={e => setSubCategory(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white" disabled={!selectableCategoryTree[mainCategory] || selectableCategoryTree[mainCategory].length===0}>
+                        {selectableCategoryTree[mainCategory]?.length > 0 ? selectableCategoryTree[mainCategory].map(s => <option key={s} value={s}>{s}</option>) : <option value="">無第三層分類</option>}
                       </select>
-                      <p className="mt-2 text-xs text-blue-600">匯出路徑：{categoryPath(mainCategory, subCategory)}</p>
+                      <p className="mt-2 text-xs text-blue-600">匯出路徑：{categoryPath(mainCategory, subCategory, categoryCatalog)}</p>
                     </div>
                     <div><label className="block text-sm font-bold text-gray-700 mb-2">企業起訂量 (MOQ)</label><input value={moq} onChange={e => setMoq(e.target.value)} type="number" className="w-full p-2 border border-gray-300 rounded-xl text-sm" /></div>
                   </div>
@@ -761,13 +1283,20 @@
       );
     };
 
-    const ProductEditor = ({ product, onBack }) => {
+    const ProductEditor = ({ product, onBack, categoryCatalog }) => {
       const baseData = getWorkingData(product);
-      const parsedCategory = getCategoryParts(product, baseData);
-      const fallbackMain = Object.keys(categoryTree)[0];
-      const initialCategory = isValidCategory(parsedCategory.main, parsedCategory.sub)
+      const parsedCategory = getCategoryParts(product, baseData, categoryCatalog);
+      const editorCategoryTree = buildCategoryTree(categoryCatalog);
+      if (isValidCategory(parsedCategory.main, parsedCategory.sub, categoryCatalog)) {
+        if (!editorCategoryTree[parsedCategory.main]) editorCategoryTree[parsedCategory.main] = [];
+        if (parsedCategory.sub && !editorCategoryTree[parsedCategory.main].includes(parsedCategory.sub)) {
+          editorCategoryTree[parsedCategory.main].push(parsedCategory.sub);
+        }
+      }
+      const fallbackMain = Object.keys(editorCategoryTree)[0] || '';
+      const initialCategory = isValidCategory(parsedCategory.main, parsedCategory.sub, categoryCatalog)
         ? parsedCategory
-        : { main: fallbackMain, sub: categoryTree[fallbackMain][0] || '' };
+        : { main: fallbackMain, sub: editorCategoryTree[fallbackMain]?.[0] || '' };
       const initialCrafts = normalizeCustomizationCrafts(
         baseData.customization_crafts,
         baseData.customization_craft,
@@ -848,7 +1377,7 @@
         });
       };
       const handleCategoryMain = (main) => {
-        setFormData(prev => ({ ...prev, categoryMain: main, categorySub: categoryTree[main]?.[0] || '' }));
+        setFormData(prev => ({ ...prev, categoryMain: main, categorySub: editorCategoryTree[main]?.[0] || '' }));
       };
       const handleOnsiteCustomization = (value) => {
         setFormData(prev => ({
@@ -983,7 +1512,7 @@
               weight: formData.weight.trim(),
               colors: splitLines(formData.colors)
             },
-            category: categoryPath(formData.categoryMain, formData.categorySub),
+            category: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
             target_moq: Number(formData.target_moq) || 0,
             requested_customization: formData.customization_crafts.join('、'),
             customization_craft: formData.customization_crafts.join('、'),
@@ -1002,7 +1531,7 @@
             catalogStatus: 'draft',
             categoryMain: formData.categoryMain,
             categorySub: formData.categorySub,
-            categoryPath: categoryPath(formData.categoryMain, formData.categorySub),
+            categoryPath: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
             productHandle: formData.product_handle.trim(),
             moq: Number(formData.target_moq) || 0,
             customOptions: formData.customization_crafts.join('、'),
@@ -1062,10 +1591,10 @@
                 <div className="w-full p-2.5 bg-gray-100 border border-gray-200 rounded-lg text-sm font-bold text-gray-600">{SHOPLINE_ROOT_CATEGORY}</div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className={labelClass}>第二層分類</label><select className={fieldClass} value={formData.categoryMain} onChange={e => handleCategoryMain(e.target.value)}>{Object.keys(categoryTree).map(item => <option key={item}>{item}</option>)}</select></div>
-                <div><label className={labelClass}>第三層分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!categoryTree[formData.categoryMain]?.length}>{categoryTree[formData.categoryMain]?.length > 0 ? categoryTree[formData.categoryMain].map(item => <option key={item}>{item}</option>) : <option value="">無第三層分類</option>}</select></div>
+                <div><label className={labelClass}>第二層分類</label><select className={fieldClass} value={formData.categoryMain} onChange={e => handleCategoryMain(e.target.value)}>{Object.keys(editorCategoryTree).map(item => <option key={item}>{item}</option>)}</select></div>
+                <div><label className={labelClass}>第三層分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!editorCategoryTree[formData.categoryMain]?.length}>{editorCategoryTree[formData.categoryMain]?.length > 0 ? editorCategoryTree[formData.categoryMain].map(item => <option key={item}>{item}</option>) : <option value="">無第三層分類</option>}</select></div>
               </div>
-              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">SHOPLINE 匯出路徑：{categoryPath(formData.categoryMain, formData.categorySub)}</p>
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">SHOPLINE 匯出路徑：{categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog)}</p>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
                 <div>
@@ -1203,7 +1732,7 @@
       );
     };
 
-    const ProductLibraryView = ({ defaultStatusFilter = 'all', title = '商品庫' }) => {
+    const ProductLibraryView = ({ defaultStatusFilter = 'all', title = '商品庫', categoryCatalog }) => {
       const [products, setProducts] = useState([]);
       const [selectedProductId, setSelectedProductId] = useState('');
       const [selectedIds, setSelectedIds] = useState([]);
@@ -1238,7 +1767,7 @@
 
       const selectedProduct = products.find(product => product.id === selectedProductId);
       if (selectedProduct) {
-        return <ProductEditor product={selectedProduct} onBack={() => setSelectedProductId('')} />;
+        return <ProductEditor product={selectedProduct} onBack={() => setSelectedProductId('')} categoryCatalog={categoryCatalog} />;
       }
 
       const normalizedSearch = searchText.trim().toLowerCase();
@@ -1358,7 +1887,7 @@
         selectedProducts.forEach(product => {
           const handle = buildProductHandle(product);
           if (handle) handleCounts[handle] = (handleCounts[handle] || 0) + 1;
-          const issues = getExportIssues(product);
+          const issues = getExportIssues(product, categoryCatalog);
           if (issues.length > 0) {
             const data = getWorkingData(product);
             errorLines.push(`${data.title_zh || data.title_en || product.id}：${issues.join('、')}`);
@@ -1383,7 +1912,7 @@
         const selectedProducts = getValidatedSelection();
         if (!selectedProducts) return;
 
-        const rows = [shoplineHeadersEn, shoplineHeadersZh, ...selectedProducts.map(buildShoplineRow)];
+        const rows = [shoplineHeadersEn, shoplineHeadersZh, ...selectedProducts.map(product => buildShoplineRow(product, categoryCatalog))];
         try {
           if (!window.XLSX) {
             setExportError('Excel 匯出元件尚未載入，請重新整理頁面後再試。');
@@ -1500,7 +2029,7 @@
                     {filteredProducts.map(product => {
                       const data = getWorkingData(product);
                       const state = getProductState(product);
-                      const exportIssues = getExportIssues(product);
+                      const exportIssues = getExportIssues(product, categoryCatalog);
                       const isSelected = selectedSet.has(product.id);
                       return (
                         <tr key={product.id} className="hover:bg-gray-50">
@@ -1513,7 +2042,7 @@
                             <div className="font-bold text-gray-800">{data.title_zh || data.title_en || '等待 AI 產生名稱'}</div>
                             <div className="text-xs text-gray-400 mt-1">{product.id}</div>
                           </td>
-                          <td className="px-5 py-4 text-gray-600">{getShoplineCategory(product, data) || '分類待修正'}</td>
+                          <td className="px-5 py-4 text-gray-600">{getShoplineCategory(product, data, categoryCatalog) || '分類待修正'}</td>
                           <td className="px-5 py-4 text-gray-600">{data.target_moq || product.moq || '—'}</td>
                           <td className="px-5 py-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium ${state.className}`}>{state.label}</span></td>
                           <td className="px-5 py-4">
@@ -1555,6 +2084,8 @@
       const [activeTab, setActiveTab] = useState('ai-import');
       const [expandedGroup, setExpandedGroup] = useState('');
       const [currentUser, setCurrentUser] = useState(null);
+      const [categoryCatalog, setCategoryCatalog] = useState(normalizeCategoryCatalog(DEFAULT_CATEGORY_CATALOG));
+      const [categorySettingsError, setCategorySettingsError] = useState('');
 
       // ✅ 監聽 Firebase 的登入狀態，解決重新整理跳回登入頁的問題
       useEffect(() => {
@@ -1569,6 +2100,57 @@
         });
         return () => unsubscribe();
       }, []);
+
+      useEffect(() => {
+        if (!isLoggedIn) return undefined;
+        const settingsRef = db.collection('settings').doc(CATEGORY_SETTINGS_DOC);
+        const unsubscribe = settingsRef.onSnapshot(async (snapshot) => {
+          if (snapshot.exists && Array.isArray(snapshot.data().categories)) {
+            setCategoryCatalog(normalizeCategoryCatalog(snapshot.data().categories));
+            setCategorySettingsError('');
+            return;
+          }
+
+          try {
+            const defaults = normalizeCategoryCatalog(DEFAULT_CATEGORY_CATALOG);
+            await settingsRef.set({
+              rootName: SHOPLINE_ROOT_CATEGORY,
+              categories: defaults,
+              schemaVersion: 1,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              updatedBy: {
+                uid: auth.currentUser?.uid || '',
+                email: auth.currentUser?.email || ''
+              }
+            }, { merge: true });
+            setCategoryCatalog(defaults);
+          } catch (seedError) {
+            console.error('分類母資料初始化失敗:', seedError);
+            setCategorySettingsError(`分類母資料目前使用內建預設值：${seedError.message}`);
+          }
+        }, (snapshotError) => {
+          console.error('分類母資料載入失敗:', snapshotError);
+          setCategorySettingsError(`分類母資料載入失敗，目前使用內建預設值：${snapshotError.message}`);
+        });
+        return () => unsubscribe();
+      }, [isLoggedIn]);
+
+      const handleSaveCategoryCatalog = async (nextCatalog) => {
+        const normalized = normalizeCategoryCatalog(nextCatalog);
+        await db.collection('settings').doc(CATEGORY_SETTINGS_DOC).set({
+          rootName: SHOPLINE_ROOT_CATEGORY,
+          categories: normalized,
+          schemaVersion: 1,
+          updatedAt: serverTimestamp(),
+          updatedBy: {
+            uid: auth.currentUser?.uid || '',
+            email: auth.currentUser?.email || ''
+          }
+        }, { merge: true });
+        setCategoryCatalog(normalized);
+        setCategorySettingsError('');
+      };
 
       // 執行登出
       const handleLogout = () => {
@@ -1589,7 +2171,7 @@
           label: '資料管理',
           emoji: '📁',
           items: [
-            { label: '商品分類', disabled: true },
+            { id: 'categories', label: '商品分類' },
             { label: '品牌管理', disabled: true },
             { label: '材質管理', disabled: true },
             { label: '工藝管理', disabled: true },
@@ -1703,9 +2285,15 @@
             </div>
           </div>
           <main className="flex-1 overflow-y-auto relative">
-            {activeTab === 'ai-import' && <AIImportView onOpenLibrary={() => setActiveTab('products')} />}
-            {activeTab === 'products' && <ProductLibraryView key="products" />}
-            {activeTab === 'archived-products' && <ProductLibraryView key="archived-products" defaultStatusFilter="archived" title="封存商品" />}
+            {categorySettingsError && (
+              <div className="mx-8 mt-5 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm">
+                {categorySettingsError}
+              </div>
+            )}
+            {activeTab === 'ai-import' && <AIImportView onOpenLibrary={() => setActiveTab('products')} categoryCatalog={categoryCatalog} />}
+            {activeTab === 'products' && <ProductLibraryView key="products" categoryCatalog={categoryCatalog} />}
+            {activeTab === 'archived-products' && <ProductLibraryView key="archived-products" defaultStatusFilter="archived" title="封存商品" categoryCatalog={categoryCatalog} />}
+            {activeTab === 'categories' && <CategoryManagementView catalog={categoryCatalog} onSave={handleSaveCategoryCatalog} />}
           </main>
         </div>
       );
