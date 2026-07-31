@@ -298,7 +298,7 @@
       "燙布章": "Fabric Transfer"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.7.0";
+    const ERP_VERSION = "2.7.1";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -405,7 +405,7 @@
     };
     const stripManagedHighlights = (items, language) => {
       const managedPattern = language === 'en'
-        ? /^(?:(?:customization|customisation|printing|decoration|branding)\s+(?:techniques?|methods?|crafts?)|branding\s+method)\s*[:：]|^(?:available\s+for\s+)?on-site(?:\s+event)?\s+(?:customization|customisation|personalization|laser\s+engraving)/i
+        ? /^(?:(?:customization|customisation|personalization|personalisation)(?:\s+(?:techniques?|methods?|crafts?))?|(?:printing|decoration|branding)\s+(?:techniques?|methods?|crafts?)|branding\s+method)\s*[:：-]|^(?:available\s+for\s+)?on-site(?:\s+event)?\s+(?:customization|customisation|personalization|personalisation|laser\s+engraving)/i
         : /^(?:印製工藝|印刷工藝|客製工藝|客製方式)\s*[:：]|^可在活動現場客製化|^(?:此|本)商品(?:可提供|支援)活動現場客製/;
       return (Array.isArray(items) ? items : splitLines(items))
         .map(item => String(item || '').replace(/^[・•◆※\-]\s*/, '').trim())
@@ -1319,33 +1319,6 @@
         }
       };
 
-      const moveGroup = async (group, direction) => {
-        const nextCatalog = cloneData(normalizedCatalog);
-        const index = nextCatalog.groups.findIndex(item => item.id === group.id);
-        const nextIndex = index + direction;
-        if (index < 0 || nextIndex < 0 || nextIndex >= nextCatalog.groups.length) return;
-        [nextCatalog.groups[index], nextCatalog.groups[nextIndex]] = [nextCatalog.groups[nextIndex], nextCatalog.groups[index]];
-        try {
-          await persist(nextCatalog, '標籤群組排序已更新。');
-        } catch {
-          // persist 已顯示錯誤。
-        }
-      };
-
-      const moveTag = async (group, tag, direction) => {
-        const nextCatalog = cloneData(normalizedCatalog);
-        const tags = nextCatalog.groups.find(item => item.id === group.id)?.tags || [];
-        const index = tags.findIndex(item => item.id === tag.id);
-        const nextIndex = index + direction;
-        if (index < 0 || nextIndex < 0 || nextIndex >= tags.length) return;
-        [tags[index], tags[nextIndex]] = [tags[nextIndex], tags[index]];
-        try {
-          await persist(nextCatalog, `${group.name}標籤排序已更新。`);
-        } catch {
-          // persist 已顯示錯誤。
-        }
-      };
-
       const deleteTag = async (group, tag) => {
         const used = usageCount(tag);
         if (used > 0) {
@@ -1356,10 +1329,9 @@
         const targetGroup = nextCatalog.groups.find(item => item.id === group.id);
         targetGroup.tags = targetGroup.tags.filter(item => item.id !== tag.id);
         try {
-          await downloadFullFirestoreBackup();
           await persist(nextCatalog, '未使用標籤已刪除。');
         } catch {
-          setError('刪除前備份或標籤儲存失敗，未完成刪除。');
+          setError('標籤儲存失敗，未完成刪除。');
         }
       };
 
@@ -1374,10 +1346,9 @@
         const nextCatalog = cloneData(normalizedCatalog);
         nextCatalog.groups = nextCatalog.groups.filter(item => item.id !== group.id);
         try {
-          await downloadFullFirestoreBackup();
           await persist(nextCatalog, '空白標籤群組已刪除。');
         } catch {
-          setError('刪除前備份或標籤儲存失敗，未完成刪除。');
+          setError('標籤群組儲存失敗，未完成刪除。');
         }
       };
 
@@ -1402,7 +1373,7 @@
 
           <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
             <div className="space-y-5">
-              {normalizedCatalog.groups.map((group, groupIndex) => (
+              {normalizedCatalog.groups.map((group) => (
                 <section key={group.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                   <div className={`px-5 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${group.active ? 'bg-gray-50' : 'bg-gray-100'}`}>
                     <div>
@@ -1416,8 +1387,6 @@
                       <p className="text-xs text-gray-500 mt-1">{group.tags.length} 個標籤</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
-                      <button className={actionButton} title="群組上移" onClick={() => moveGroup(group, -1)} disabled={isSaving || groupIndex === 0}><ArrowUp className="w-3.5 h-3.5"/></button>
-                      <button className={actionButton} title="群組下移" onClick={() => moveGroup(group, 1)} disabled={isSaving || groupIndex === normalizedCatalog.groups.length - 1}><ArrowDown className="w-3.5 h-3.5"/></button>
                       <button className={actionButton} title="編輯群組" onClick={() => openEditGroup(group)} disabled={isSaving}><Pencil className="w-3.5 h-3.5"/></button>
                       <button className={actionButton} title={group.active ? '停用群組' : '啟用群組'} onClick={() => toggleGroupActive(group)} disabled={isSaving}><Power className="w-3.5 h-3.5"/></button>
                       <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除空白群組" onClick={() => deleteGroup(group)} disabled={isSaving}><Trash2 className="w-3.5 h-3.5"/></button>
@@ -1431,7 +1400,7 @@
                     <div className="px-5 py-10 text-center text-sm text-gray-400">此群組尚未建立標籤。</div>
                   ) : (
                     <div className="divide-y divide-gray-100">
-                      {group.tags.map((tag, tagIndex) => (
+                      {group.tags.map((tag) => (
                         <div key={tag.id} className={`px-5 py-3.5 flex items-center justify-between gap-3 ${tag.active && group.active ? 'bg-white' : 'bg-gray-50'}`}>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1443,8 +1412,6 @@
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            <button className={actionButton} title="標籤上移" onClick={() => moveTag(group, tag, -1)} disabled={isSaving || tagIndex === 0}><ArrowUp className="w-3.5 h-3.5"/></button>
-                            <button className={actionButton} title="標籤下移" onClick={() => moveTag(group, tag, 1)} disabled={isSaving || tagIndex === group.tags.length - 1}><ArrowDown className="w-3.5 h-3.5"/></button>
                             <button className={actionButton} title="編輯標籤" onClick={() => openEditTag(group, tag)} disabled={isSaving}><Pencil className="w-3.5 h-3.5"/></button>
                             <button className={actionButton} title={tag.active ? '停用標籤' : '啟用標籤'} onClick={() => toggleTagActive(group, tag)} disabled={isSaving}><Power className="w-3.5 h-3.5"/></button>
                             <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除未使用標籤" onClick={() => deleteTag(group, tag)} disabled={isSaving}><Trash2 className="w-3.5 h-3.5"/></button>
@@ -1491,7 +1458,7 @@
                   <Tags className="w-10 h-10 text-blue-200 mb-3"/>
                   <h3 className="font-bold text-gray-800">商品標籤規則</h3>
                   <ul className="mt-3 space-y-2 text-sm text-gray-500 list-disc pl-5">
-                    <li>群組與標籤皆可新增、改名、排序及停用。</li>
+                    <li>群組與標籤皆可新增、改名及停用。</li>
                     <li>停用後不供新商品選取，既有商品仍保留。</li>
                     <li>已被商品使用的標籤不可刪除，只能停用。</li>
                     <li>標籤名稱不可跨群組重複，以免 SHOPLINE 匯出混淆。</li>
@@ -1504,14 +1471,14 @@
       );
     };
 
-    const ProductTagSelector = ({ catalog, selectedIds, onToggle }) => {
+    const ProductTagSelector = ({ catalog, selectedIds, onToggle, wide = false }) => {
       const groups = getSelectableTagGroups(catalog, selectedIds);
       const selectedNames = getSelectedTagNames(catalog, selectedIds);
       if (groups.length === 0) {
         return <div className="rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-400">尚未建立可用的商品標籤。</div>;
       }
       return (
-        <div className="space-y-3">
+        <div className={wide ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" : "space-y-3"}>
           {groups.map(group => (
             <div key={group.id} className="rounded-lg border border-gray-200 bg-white p-3">
               <div className="flex items-center gap-2 mb-2">
@@ -1532,7 +1499,7 @@
               </div>
             </div>
           ))}
-          <p className="text-xs text-blue-600">已選：{selectedNames.join('、') || '尚未選擇'}</p>
+          <p className={`text-xs text-blue-600 ${wide ? 'md:col-span-2 xl:col-span-3' : ''}`}>已選：{selectedNames.join('、') || '尚未選擇'}</p>
         </div>
       );
     };
@@ -2427,11 +2394,6 @@
               </div>
               <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">SHOPLINE 匯出路徑：{categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog)}</p>
               <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
-              <div>
-                <label className={labelClass}>商品標籤（可跨群組多選）</label>
-                <ProductTagSelector catalog={normalizedTags} selectedIds={formData.product_tag_ids} onToggle={toggleEditorTag}/>
-                <p className="mt-2 text-xs text-gray-500">已選標籤會輸出至 SHOPLINE Product Tag；工藝與現場客製標籤也會同步整理商品特色。</p>
-              </div>
             </section>
 
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm">
@@ -2441,7 +2403,7 @@
                 <div>
                   <label className={labelClass}>材質</label>
                   <input className={fieldClass} value={formData.material} onChange={e => updateField('material', e.target.value)} placeholder="例如：K9 水晶、304 不鏽鋼"/>
-                  <p className="mt-1.5 text-xs text-gray-400">此欄是實際商品規格；材質標籤在左側標籤區勾選。</p>
+                  <p className="mt-1.5 text-xs text-gray-400">此欄是實際商品規格；材質標籤在下方商品標籤區勾選。</p>
                 </div>
                 <div><label className={labelClass}>容量</label><input className={fieldClass} value={formData.capacity} onChange={e => updateField('capacity', e.target.value)}/></div>
               </div>
@@ -2450,6 +2412,14 @@
                 <div><label className={labelClass}>重量</label><input className={fieldClass} value={formData.weight} onChange={e => updateField('weight', e.target.value)}/></div>
               </div>
               <div><label className={labelClass}>顏色（每行一個）</label><textarea className={`${fieldClass} min-h-[90px]`} value={formData.colors} onChange={e => updateField('colors', e.target.value)}/></div>
+            </section>
+
+            <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
+              <div className="border-b pb-3">
+                <h3 className="font-bold text-gray-800">商品標籤（可跨群組多選）</h3>
+                <p className="text-xs text-gray-400 mt-1">已選標籤會輸出至 SHOPLINE Product Tag；工藝與現場客製標籤也會同步整理商品摘要。</p>
+              </div>
+              <ProductTagSelector catalog={normalizedTags} selectedIds={formData.product_tag_ids} onToggle={toggleEditorTag} wide/>
             </section>
 
             <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-4 shadow-sm lg:col-span-2">
@@ -2521,8 +2491,8 @@
                 </button>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div><label className={labelClass}>商品特色（繁中，每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_zh} onChange={e => updateField('highlights_zh', e.target.value)}/></div>
-                <div><label className={labelClass}>Product Highlights（每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_en} onChange={e => updateField('highlights_en', e.target.value)}/></div>
+                <div><label className={labelClass}>商品摘要（繁中，每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_zh} onChange={e => updateField('highlights_zh', e.target.value)}/></div>
+                <div><label className={labelClass}>Product Summary（每行一點）</label><textarea className={`${fieldClass} min-h-[130px]`} value={formData.highlights_en} onChange={e => updateField('highlights_en', e.target.value)}/></div>
                 <div><label className={labelClass}>商品描述（繁中）</label><textarea className={`${fieldClass} min-h-[180px]`} value={formData.description_zh} onChange={e => updateField('description_zh', e.target.value)}/></div>
                 <div><label className={labelClass}>Product Description</label><textarea className={`${fieldClass} min-h-[180px]`} value={formData.description_en} onChange={e => updateField('description_en', e.target.value)}/></div>
               </div>
@@ -2648,7 +2618,6 @@
         setActionBusyId('bulk-archive');
         setError('');
         try {
-          await downloadFullProductBackup({ automatic: true });
           const batch = db.batch();
           selectedProductsForAction.forEach(product => {
             batch.update(db.collection('products').doc(product.id), {
@@ -2700,19 +2669,39 @@
         if (selectedProductsForAction.length === 0) {
           return setError('請先勾選至少一筆商品。');
         }
-        if (!window.confirm(`確定要永久刪除所選的 ${selectedProductsForAction.length} 筆商品嗎？\n\n商品資料刪除後無法復原；原始上傳圖片不會一併刪除。`)) return;
+        if (!window.confirm(`確定要永久刪除所選的 ${selectedProductsForAction.length} 筆商品嗎？\n\n系統會先將完整 JSON 備份保存 30 天，備份成功後才執行永久刪除；不會下載到目前電腦，原始上傳圖片也不會一併刪除。`)) return;
 
         setActionBusyId('bulk-delete');
         setError('');
         try {
-          await downloadFullProductBackup({ automatic: true });
+          const token = await auth.currentUser?.getIdToken();
+          if (!token) throw new Error('登入狀態已失效，請重新登入。');
+          const backupResponse = await fetch(`${BACKEND_URL}/api/deletion-backups`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              productIds: selectedProductsForAction.map(product => product.id),
+              reason: 'permanent-product-deletion',
+              erpVersion: ERP_VERSION
+            })
+          });
+          const backupPayload = await backupResponse.json().catch(() => ({}));
+          if (!backupResponse.ok || !backupPayload.ok) {
+            throw new Error(backupPayload.error || `刪除前備份失敗（HTTP ${backupResponse.status}）`);
+          }
           const batch = db.batch();
           selectedProductsForAction.forEach(product => {
             batch.delete(db.collection('products').doc(product.id));
           });
           await batch.commit();
           setSelectedIds([]);
-          setExportMessage(`✅ 已永久刪除 ${selectedProductsForAction.length} 筆商品。`);
+          const expiresAt = backupPayload.backup?.expiresAt
+            ? new Date(backupPayload.backup.expiresAt).toLocaleDateString('zh-TW')
+            : '30 天後';
+          setExportMessage(`✅ 已永久刪除 ${selectedProductsForAction.length} 筆商品；JSON 備份保留至 ${expiresAt}。`);
         } catch (actionError) {
           setError(`刪除失敗：${actionError.message}`);
         } finally {
