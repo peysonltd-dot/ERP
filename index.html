@@ -298,7 +298,7 @@
       "燙布章": "Fabric Transfer"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.7.1";
+    const ERP_VERSION = "2.7.2";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -1519,7 +1519,7 @@
       const [selectedTagIds, setSelectedTagIds] = useState([]);
       const [material, setMaterial] = useState('');
       
-      const [specImagesBase64, setSpecImagesBase64] = useState([]);
+      const [specFilesBase64, setSpecFilesBase64] = useState([]);
       const specInputRef = useRef(null);
 
       const [aiModel, setAiModel] = useState('gemini-3.6-flash');
@@ -1570,17 +1570,96 @@
           : current);
       };
 
-      const handleSpecImageUpload = async (e) => {
+      const SPEC_FILE_TYPES = new Set([
+        'application/pdf',
+        'text/plain',
+        'text/csv',
+        'text/markdown',
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+        'image/heic',
+        'image/heif',
+        'image/gif',
+        'image/bmp',
+        'image/tiff'
+      ]);
+      const SPEC_FILE_EXTENSIONS = {
+        'application/pdf': 'pdf',
+        'text/plain': 'txt',
+        'text/csv': 'csv',
+        'text/markdown': 'md',
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/webp': 'webp',
+        'image/heic': 'heic',
+        'image/heif': 'heif',
+        'image/gif': 'gif',
+        'image/bmp': 'bmp',
+        'image/tiff': 'tiff'
+      };
+      const MAX_SPEC_FILE_BYTES = 10 * 1024 * 1024;
+      const MAX_TOTAL_SPEC_FILE_BYTES = 20 * 1024 * 1024;
+
+      const resolveSpecFileType = (file) => {
+        const reportedType = String(file.type || '').toLowerCase();
+        if (SPEC_FILE_TYPES.has(reportedType)) return reportedType;
+        const extension = String(file.name || '').toLowerCase().split('.').pop();
+        return {
+          pdf: 'application/pdf',
+          txt: 'text/plain',
+          csv: 'text/csv',
+          md: 'text/markdown',
+          markdown: 'text/markdown',
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          webp: 'image/webp',
+          heic: 'image/heic',
+          heif: 'image/heif',
+          gif: 'image/gif',
+          bmp: 'image/bmp',
+          tif: 'image/tiff',
+          tiff: 'image/tiff'
+        }[extension] || '';
+      };
+
+      const handleSpecFileUpload = async (e) => {
         const selectedFiles = Array.from(e.target.files || []);
-        if (selectedFiles.length > 5) setError('規格截圖最多上傳 5 張，已先取前 5 張。');
         const files = selectedFiles.slice(0, 5);
+        const invalidFile = files.find(file => !resolveSpecFileType(file));
+        const oversizedFile = files.find(file => file.size > MAX_SPEC_FILE_BYTES);
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+
+        if (invalidFile) {
+          setSpecFilesBase64([]);
+          if (specInputRef.current) specInputRef.current.value = '';
+          return setError(`不支援「${invalidFile.name}」；請上傳圖片、PDF、TXT、CSV 或 Markdown。`);
+        }
+        if (oversizedFile) {
+          setSpecFilesBase64([]);
+          if (specInputRef.current) specInputRef.current.value = '';
+          return setError(`「${oversizedFile.name}」超過 10 MB，請縮小後再上傳。`);
+        }
+        if (totalBytes > MAX_TOTAL_SPEC_FILE_BYTES) {
+          setSpecFilesBase64([]);
+          if (specInputRef.current) specInputRef.current.value = '';
+          return setError('規格圖片與檔案合計不可超過 20 MB。');
+        }
+
+        setError(selectedFiles.length > 5 ? '規格圖片或檔案最多上傳 5 個，已先取前 5 個。' : '');
         const encoded = await Promise.all(files.map(file => new Promise((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = () => resolve({ name: file.name, mimeType: file.type, data: reader.result.split(',')[1] });
-          reader.onerror = () => reject(new Error(`無法讀取圖片：${file.name}`));
+          reader.onload = () => resolve({
+            name: file.name,
+            mimeType: resolveSpecFileType(file),
+            size: file.size,
+            data: reader.result.split(',')[1]
+          });
+          reader.onerror = () => reject(new Error(`無法讀取檔案：${file.name}`));
           reader.readAsDataURL(file);
         })));
-        setSpecImagesBase64(encoded);
+        setSpecFilesBase64(encoded);
       };
 
       useEffect(() => {
@@ -1638,28 +1717,36 @@
       }, [activeJobId, tagCatalog]);
 
       const handleGenerate = async () => {
-        if (!rawText.trim() && specImagesBase64.length === 0) return setError('請貼上文字說明或上傳規格圖片！');
+        if (!rawText.trim() && specFilesBase64.length === 0) return setError('請貼上文字說明或上傳規格圖片／檔案！');
         
         setError(''); setSuccessMsg(''); setIsGenerating(true); 
 
         try {
-          let imageUrls = [];
+          let sourceFiles = [];
 
-          if (specImagesBase64.length > 0) {
-            setSuccessMsg(`上傳 ${specImagesBase64.length} 張圖片至雲端...`);
-            imageUrls = await Promise.all(specImagesBase64.map(async (image, index) => {
-              const byteCharacters = atob(image.data);
+          if (specFilesBase64.length > 0) {
+            setSuccessMsg(`上傳 ${specFilesBase64.length} 個規格圖片／檔案至雲端...`);
+            sourceFiles = await Promise.all(specFilesBase64.map(async (file, index) => {
+              const byteCharacters = atob(file.data);
               const byteNumbers = new Array(byteCharacters.length);
               for (let i = 0; i < byteCharacters.length; i++) {
                 byteNumbers[i] = byteCharacters.charCodeAt(i);
               }
               const byteArray = new Uint8Array(byteNumbers);
-              const blob = new Blob([byteArray], { type: image.mimeType });
-              const extension = image.mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+              const blob = new Blob([byteArray], { type: file.mimeType });
+              const extension = SPEC_FILE_EXTENSIONS[file.mimeType] || 'bin';
               const fileName = `specs/${Date.now()}-${index + 1}.${extension}`;
               const storageRef = storage.ref().child(fileName);
-              await storageRef.put(blob);
-              return storageRef.getDownloadURL();
+              await storageRef.put(blob, {
+                contentType: file.mimeType,
+                customMetadata: { originalName: file.name }
+              });
+              return {
+                name: file.name,
+                mimeType: file.mimeType,
+                size: file.size,
+                url: await storageRef.getDownloadURL()
+              };
             }));
           }
 
@@ -1671,8 +1758,9 @@
             catalogStatus: 'ai_processing',
             rawText: rawText,
             sourceUrl: sourceUrl.trim(),
-            imageUrl: imageUrls[0] || null,
-            sourceImages: imageUrls,
+            imageUrl: sourceFiles.find(file => file.mimeType.startsWith('image/'))?.url || null,
+            sourceImages: sourceFiles.filter(file => file.mimeType.startsWith('image/')).map(file => file.url),
+            sourceFiles,
             moq: Number(moq) || 0,
             category: selectedCategoryPath,
             categoryMain: mainCategory,
@@ -1823,13 +1911,14 @@
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">1688 原始說明（文字）</label>
                   <textarea value={rawText} onChange={e => setRawText(e.target.value)} className="w-full h-32 p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="請貼上商品名稱、材質、尺寸、容量、重量、顏色等文字資料..."/>
-                  <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">目前不會自動開啟 1688 商品頁；只貼網址不等於匯入網頁內容。請另外貼上規格文字或上傳清晰參數截圖。</p>
+                  <p className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">目前不會自動開啟 1688 商品頁；只貼網址不等於匯入網頁內容。請另外貼上規格文字，或上傳清晰的規格圖片／檔案。</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">規格截圖（最多 5 張）</label>
-                    <input type="file" multiple ref={specInputRef} onChange={handleSpecImageUpload} accept="image/*" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/>
-                    {specImagesBase64.length > 0 && <p className="mt-2 text-xs text-green-700">已選擇 {specImagesBase64.length} 張：{specImagesBase64.map(image => image.name).join('、')}</p>}
+                    <label className="block text-sm font-bold text-gray-700 mb-2">規格圖片或檔案（最多 5 個）</label>
+                    <input type="file" multiple ref={specInputRef} onChange={handleSpecFileUpload} accept="image/*,.pdf,.txt,.csv,.md,.markdown" className="w-full p-2 border border-gray-300 rounded-xl text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700"/>
+                    <p className="mt-2 text-xs text-gray-500">支援圖片、PDF、TXT、CSV、Markdown；單檔 10 MB，合計 20 MB。</p>
+                    {specFilesBase64.length > 0 && <p className="mt-2 text-xs text-green-700">已選擇 {specFilesBase64.length} 個：{specFilesBase64.map(file => file.name).join('、')}</p>}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
