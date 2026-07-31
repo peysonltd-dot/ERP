@@ -29,7 +29,7 @@
       User, Shield, ArrowRight, Plus, Stamp, FileSignature, X, Eye, FileDigit, CheckSquare, 
       Square, Edit3, Save, ArrowLeft, ImagePlus, UploadCloud, Upload, Briefcase, DollarSign, 
       Gift, Menu, UserCheck, Lock, Key, Cpu, Languages, Archive, ArchiveRestore, ChevronDown, ChevronRight,
-      FolderTree, ArrowUp, ArrowDown, Power, Pencil, RefreshCw
+      FolderTree, ArrowUp, ArrowDown, Power, Pencil, RefreshCw, Tags
     } from 'https://esm.sh/lucide-react@0.294.0?deps=react@18.2.0';
 
     // ==========================================
@@ -55,6 +55,7 @@
     // --- SHOPLINE 分類母資料與商品欄位常數 ---
     const SHOPLINE_ROOT_CATEGORY = "所有禮品";
     const CATEGORY_SETTINGS_DOC = "productCategories";
+    const TAG_SETTINGS_DOC = "productTags";
     const categoryNode = (id, name, children = [], active = true, aliases = []) => ({
       id,
       name,
@@ -172,24 +173,132 @@
     );
     const makeCategoryId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const categoryTree = buildCategoryTree(DEFAULT_CATEGORY_CATALOG);
-    const customizationOptions = ["彩色印刷", "單色印刷", "壓印燙金", "壓印", "雷射雕刻"];
-    const customizationDisplayOrder = ["雷射雕刻", "單色印刷", "彩色印刷", "壓印燙金", "壓印"];
-    const customizationLabelsZh = {
-      "雷射雕刻": "雷雕",
-      "單色印刷": "單色印刷",
-      "彩色印刷": "彩色印刷",
-      "壓印燙金": "壓印燙金",
-      "壓印": "壓印"
+    const tagNode = (id, name, active = true, aliases = []) => ({
+      id,
+      name,
+      active,
+      aliases
+    });
+    const tagGroupNode = (id, name, tags = [], active = true, aliases = []) => ({
+      id,
+      name,
+      active,
+      aliases,
+      tags
+    });
+    const DEFAULT_PRODUCT_TAGS = {
+      groups: [
+        tagGroupNode("tag-group-service", "服務", [
+          tagNode("tag-onsite", "現場客製")
+        ]),
+        tagGroupNode("tag-group-craft", "工藝", [
+          tagNode("tag-craft-laser", "雷射雕刻", true, ["雷雕"]),
+          tagNode("tag-craft-color-print", "彩色印刷", true, ["彩色印", "UV彩印", "UV印刷"]),
+          tagNode("tag-craft-single-print", "單色印刷", true, ["單色印", "網版印刷"]),
+          tagNode("tag-craft-deboss", "純壓印", true, ["壓印"]),
+          tagNode("tag-craft-foil", "壓印燙金", true, ["燙金", "燙銀"]),
+          tagNode("tag-craft-fabric", "燙布章", true, ["燙印布章"])
+        ]),
+        tagGroupNode("tag-group-material", "材質", [
+          tagNode("tag-material-wood", "木製品", true, ["木質製"]),
+          tagNode("tag-material-bamboo", "竹製品", true, ["竹子"]),
+          tagNode("tag-material-leather", "皮製品", true, ["皮革製品"]),
+          tagNode("tag-material-metal", "金屬製品"),
+          tagNode("tag-material-fabric", "布類材質"),
+          tagNode("tag-material-paper", "紙製品"),
+          tagNode("tag-material-glass", "玻璃製品", true, ["玻璃製"]),
+          tagNode("tag-material-abs", "ABS 塑料", true, ["ABS塑料"]),
+          tagNode("tag-material-acrylic", "壓克力")
+        ]),
+        tagGroupNode("tag-group-play", "玩法", [
+          tagNode("tag-play-ai-photo", "AI拍貼", true, ["AI 拍貼"]),
+          tagNode("tag-play-signature", "手寫簽名"),
+          tagNode("tag-play-typing", "打字客製"),
+          tagNode("tag-play-interactive", "互動設計"),
+          tagNode("tag-play-drawing", "紙筆手繪"),
+          tagNode("tag-play-other", "其他客製")
+        ]),
+        tagGroupNode("tag-group-use", "用途", [
+          tagNode("tag-use-brand", "品牌活動"),
+          tagNode("tag-use-sports", "運動賽事"),
+          tagNode("tag-use-wedding", "婚禮宴會"),
+          tagNode("tag-use-campus", "校園活動"),
+          tagNode("tag-use-corporate", "企業活動")
+        ]),
+        tagGroupNode("tag-group-theme", "主題", [
+          tagNode("tag-theme-esg", "ESG")
+        ])
+      ]
     };
-    const customizationLabelsEn = {
+    const normalizeTagItems = (value = []) => (Array.isArray(value) ? value : []).map((item, index) => ({
+      id: String(item.id || `tag-${index + 1}`),
+      name: String(item.name || '').trim(),
+      active: item.active !== false,
+      aliases: Array.isArray(item.aliases) ? item.aliases.map(String).map(alias => alias.trim()).filter(Boolean) : []
+    })).filter(item => item.name);
+    const normalizeProductTags = (value = {}) => {
+      const input = Array.isArray(value.groups) ? value.groups : DEFAULT_PRODUCT_TAGS.groups;
+      return {
+        groups: input.map((group, index) => ({
+          id: String(group.id || `tag-group-${index + 1}`),
+          name: String(group.name || '').trim(),
+          active: group.active !== false,
+          aliases: Array.isArray(group.aliases) ? group.aliases.map(String).map(alias => alias.trim()).filter(Boolean) : [],
+          tags: normalizeTagItems(group.tags)
+        })).filter(group => group.name)
+      };
+    };
+    const makeTagId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tagValueMatches = (item, value) => {
+      const target = String(value || '').trim().toLowerCase();
+      return Boolean(target) && [item.name, ...(item.aliases || [])]
+        .some(name => String(name || '').trim().toLowerCase() === target);
+    };
+    const findTagGroup = (catalog, value) => normalizeProductTags(catalog).groups
+      .find(group => group.id === value || tagValueMatches(group, value));
+    const findTagRecord = (catalog, value) => {
+      for (const group of normalizeProductTags(catalog).groups) {
+        const tag = group.tags.find(item => item.id === value || tagValueMatches(item, value));
+        if (tag) return { group, tag };
+      }
+      return null;
+    };
+    const getSelectedTagNames = (catalog, selectedIds = [], fallbackNames = []) => {
+      const selectedSet = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+      const names = normalizeProductTags(catalog).groups.flatMap(group =>
+        group.tags.filter(tag => selectedSet.has(tag.id)).map(tag => tag.name)
+      );
+      const unresolvedNames = (Array.isArray(fallbackNames) ? fallbackNames : splitComma(fallbackNames))
+        .map(name => String(name || '').trim())
+        .filter(name => name && !findTagRecord(catalog, name));
+      return Array.from(new Set([...names, ...unresolvedNames]));
+    };
+    const getTagNamesByGroup = (catalog, selectedIds, groupName) => {
+      const group = findTagGroup(catalog, groupName);
+      if (!group) return [];
+      const selectedSet = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+      return group.tags.filter(tag => selectedSet.has(tag.id)).map(tag => tag.name);
+    };
+    const getSelectableTagGroups = (catalog, currentIds = []) => {
+      const selectedSet = new Set(Array.isArray(currentIds) ? currentIds : []);
+      return normalizeProductTags(catalog).groups
+        .filter(group => group.active || group.tags.some(tag => selectedSet.has(tag.id)))
+        .map(group => ({
+          ...group,
+          tags: group.tags.filter(tag => tag.active || selectedSet.has(tag.id))
+        }))
+        .filter(group => group.tags.length > 0);
+    };
+    const CRAFT_ENGLISH_NAMES = {
       "雷射雕刻": "Laser Engraving",
-      "單色印刷": "Single-Color Printing",
       "彩色印刷": "Full-Color Printing",
+      "單色印刷": "Single-Color Printing",
+      "純壓印": "Debossing",
       "壓印燙金": "Foil Stamping",
-      "壓印": "Debossing"
+      "燙布章": "Fabric Transfer"
     };
     const BACKEND_URL = "https://erpbackend-zqgg.onrender.com";
-    const ERP_VERSION = "2.6.1";
+    const ERP_VERSION = "2.7.0";
     const MAX_MAIN_IMAGES = 12;
     const MAX_ADDITIONAL_IMAGES = 20;
 
@@ -219,6 +328,7 @@
       "選項名稱A(繁體中文)", "選項名稱B(英文)", "選項名稱B(繁體中文)", "選項數量", "選項價格", "款式特價",
       "款式會員價", "款式成本", "選項商品貨號", "款式重量(KG)", "商品條碼編號"
     ];
+    const SHOPLINE_PRODUCT_TAG_INDEX = shoplineHeadersEn.indexOf("Product Tag");
 
     const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
     const cloneData = (value) => JSON.parse(JSON.stringify(value || {}));
@@ -271,18 +381,27 @@
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     };
-    const normalizeCustomizationCrafts = (...values) => {
-      const raw = values.flatMap(value => Array.isArray(value) ? value : [value]).filter(Boolean).join('、');
-      const matched = customizationOptions.filter(option => {
-        if (raw.includes(option)) return true;
-        if (option === '彩色印刷') return /UV|彩色/.test(raw);
-        if (option === '單色印刷') return /網版|單色/.test(raw);
-        if (option === '壓印燙金') return /燙金|燙銀/.test(raw);
-        if (option === '壓印') return /(?:^|[、,，/\s])壓印(?:$|[、,，/\s])/.test(raw);
-        if (option === '雷射雕刻') return /雷射|雷雕/.test(raw);
+    const normalizeCustomizationCrafts = (tagCatalog, ...values) => {
+      const craftGroup = findTagGroup(tagCatalog, '工藝');
+      const craftTags = craftGroup?.tags || [];
+      const rawItems = values
+        .flatMap(value => Array.isArray(value) ? value : String(value || '').split(/[、,，\/\n]/))
+        .map(value => String(value || '').trim())
+        .filter(Boolean);
+      const rawText = rawItems.join('、');
+      const matchedNames = craftTags.filter(item => {
+        if ([item.name, ...(item.aliases || [])].some(name => rawItems.includes(name))) return true;
+        if (item.id === 'tag-craft-color-print') return /UV|彩色/.test(rawText);
+        if (item.id === 'tag-craft-single-print') return /網版|單色/.test(rawText);
+        if (item.id === 'tag-craft-foil') return /燙金|燙銀/.test(rawText);
+        if (item.id === 'tag-craft-deboss') return /(?:^|[、,，/\s])(?:純)?壓印(?:$|[、,，/\s])/.test(rawText);
+        if (item.id === 'tag-craft-laser') return /雷射|雷雕/.test(rawText);
+        if (item.id === 'tag-craft-fabric') return /燙(?:印)?布章/.test(rawText);
         return false;
-      });
-      return matched.length > 0 ? matched : ['雷射雕刻'];
+      }).map(item => item.name);
+      const knownValues = new Set(craftTags.flatMap(item => [item.name, ...(item.aliases || [])]));
+      const unknownNames = rawItems.filter(item => !knownValues.has(item) && !matchedNames.includes(item));
+      return Array.from(new Set([...matchedNames, ...unknownNames]));
     };
     const stripManagedHighlights = (items, language) => {
       const managedPattern = language === 'en'
@@ -292,13 +411,25 @@
         .map(item => String(item || '').replace(/^[・•◆※\-]\s*/, '').trim())
         .filter(item => item && !managedPattern.test(item));
     };
-    const applyCustomizationHighlights = (items, crafts, onsiteCustomization, language) => {
-      const normalizedCrafts = customizationDisplayOrder.filter(craft => crafts.includes(craft));
+    const applyCustomizationHighlights = (items, crafts, onsiteCustomization, language, tagCatalog = DEFAULT_PRODUCT_TAGS) => {
+      const craftGroup = findTagGroup(tagCatalog, '工藝');
+      const craftTags = craftGroup?.tags || [];
+      const normalizedSelection = normalizeCustomizationCrafts(tagCatalog, crafts);
+      const catalogNames = craftTags.map(item => item.name);
+      const normalizedCrafts = [
+        ...craftTags.filter(item => normalizedSelection.includes(item.name)).map(item => item.name),
+        ...normalizedSelection.filter(name => !catalogNames.includes(name))
+      ];
       const cleaned = stripManagedHighlights(items, language);
       if (normalizedCrafts.length === 0) return cleaned;
 
-      const labels = language === 'en' ? customizationLabelsEn : customizationLabelsZh;
-      const craftText = normalizedCrafts.map(craft => labels[craft]).join(language === 'en' ? ', ' : '、');
+      const craftText = normalizedCrafts.map(craft => {
+        const item = craftTags.find(tag => tagValueMatches(tag, craft));
+        const normalizedName = item?.name || craft;
+        return language === 'en'
+          ? (CRAFT_ENGLISH_NAMES[normalizedName] || normalizedName)
+          : normalizedName;
+      }).join(language === 'en' ? ', ' : '、');
       const techniqueLine = language === 'en'
         ? `Customization: ${craftText}${onsiteCustomization === 'Y' ? ' (On-site Available)' : ''}`
         : `印製工藝：${craftText}${onsiteCustomization === 'Y' ? '（可現場客製）' : ''}`;
@@ -324,7 +455,7 @@
       return isValidCategory(main, sub, catalog) ? categoryPath(main, sub, catalog) : '';
     };
 
-    const getExportIssues = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
+    const getExportIssues = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG, tagCatalog = DEFAULT_PRODUCT_TAGS) => {
       const data = getWorkingData(product);
       const issues = [];
       const handle = buildProductHandle(product);
@@ -332,6 +463,7 @@
       const mainImageUrls = normalizeUrlList(data.main_image_urls, data.main_image_url, Number.MAX_SAFE_INTEGER);
       const additionalImageUrls = normalizeUrlList(data.additional_image_urls, data.additional_images, Number.MAX_SAFE_INTEGER);
       const crafts = normalizeCustomizationCrafts(
+        tagCatalog,
         data.customization_crafts,
         data.customization_craft,
         data.requested_customization,
@@ -340,8 +472,8 @@
         product.customOptions
       );
       const onsiteCustomization = data.onsite_customization || product.onsiteCustomization || 'N';
-      const summaryZh = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh'));
-      const summaryEn = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en'));
+      const summaryZh = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh', tagCatalog));
+      const summaryEn = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en', tagCatalog));
 
       if (product.archived) issues.push('商品已封存');
       if (!product.finalData) issues.push('尚未保存人工確認版本');
@@ -360,9 +492,10 @@
       return issues;
     };
 
-    const buildShoplineRow = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG) => {
+    const buildShoplineRow = (product = {}, catalog = DEFAULT_CATEGORY_CATALOG, tagCatalog = DEFAULT_PRODUCT_TAGS) => {
       const data = getWorkingData(product);
       const crafts = normalizeCustomizationCrafts(
+        tagCatalog,
         data.customization_crafts,
         data.customization_craft,
         data.requested_customization,
@@ -375,8 +508,8 @@
       row[0] = buildProductHandle(product);
       row[1] = String(data.title_en || '').trim();
       row[2] = String(data.title_zh || '').trim();
-      row[3] = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en'));
-      row[4] = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh'));
+      row[3] = buildSummary(applyCustomizationHighlights(data.product_highlights_en, crafts, onsiteCustomization, 'en', tagCatalog));
+      row[4] = buildSummary(applyCustomizationHighlights(data.product_highlights_zh, crafts, onsiteCustomization, 'zh', tagCatalog));
       row[5] = stripOnsiteCopy(data.description_en, 'en');
       row[6] = stripOnsiteCopy(data.description_zh, 'zh');
       row[7] = String(data.seo_title_en || '').trim();
@@ -390,6 +523,7 @@
       row[19] = normalizeUrlList(data.additional_image_urls, data.additional_images, MAX_ADDITIONAL_IMAGES).join(' ');
       row[21] = getShoplineCategory(product, data, catalog);
       row[25] = String(data.sku || '').trim();
+      row[SHOPLINE_PRODUCT_TAG_INDEX] = getProductTagNames(product, tagCatalog).join(',');
       row[30] = 'N';
       return row;
     };
@@ -424,6 +558,70 @@
     };
 
     const getWorkingData = (product = {}) => cloneData(product.finalData || product.aiResult || {});
+    const getProductMaterial = (product = {}) => {
+      const data = getWorkingData(product);
+      return String(
+        data.extracted?.material
+        || data.material
+        || product.requestedMaterial
+        || product.material
+        || ''
+      ).trim();
+    };
+
+    const getProductTagSelection = (product = {}, catalog = DEFAULT_PRODUCT_TAGS) => {
+      const data = getWorkingData(product);
+      const hasExplicitTagFields = [
+        [data, 'product_tag_ids'],
+        [data, 'product_tags'],
+        [product, 'productTagIds'],
+        [product, 'productTags']
+      ].some(([source, key]) => Object.prototype.hasOwnProperty.call(source || {}, key));
+      const explicitIds = [
+        ...(Array.isArray(data.product_tag_ids) ? data.product_tag_ids : []),
+        ...(Array.isArray(product.productTagIds) ? product.productTagIds : [])
+      ].map(String).filter(Boolean);
+      const explicitNames = [
+        ...(Array.isArray(data.product_tags) ? data.product_tags : splitComma(data.product_tags)),
+        ...(Array.isArray(product.productTags) ? product.productTags : splitComma(product.productTags))
+      ].map(value => String(value || '').trim()).filter(Boolean);
+      const mappedIds = explicitNames
+        .map(name => findTagRecord(catalog, name)?.tag.id)
+        .filter(Boolean);
+      const selectedIds = Array.from(new Set([...explicitIds, ...mappedIds]))
+        .filter(id => Boolean(findTagRecord(catalog, id)));
+
+      if (hasExplicitTagFields) {
+        return {
+          ids: selectedIds,
+          fallbackNames: explicitNames.filter(name => !findTagRecord(catalog, name))
+        };
+      }
+
+      const legacyCrafts = normalizeCustomizationCrafts(
+        catalog,
+        data.customization_crafts,
+        data.customization_craft,
+        data.requested_customization,
+        product.customOptionList,
+        product.customizationCraft,
+        product.customOptions
+      );
+      const legacyIds = legacyCrafts
+        .map(name => findTagRecord(catalog, name)?.tag.id)
+        .filter(Boolean);
+      const onsiteCustomization = data.onsite_customization || product.onsiteCustomization || 'N';
+      if (onsiteCustomization === 'Y') {
+        const onsiteId = findTagRecord(catalog, '現場客製')?.tag.id;
+        if (onsiteId) legacyIds.push(onsiteId);
+      }
+      return { ids: Array.from(new Set(legacyIds)), fallbackNames: [] };
+    };
+
+    const getProductTagNames = (product = {}, catalog = DEFAULT_PRODUCT_TAGS) => {
+      const selection = getProductTagSelection(product, catalog);
+      return getSelectedTagNames(catalog, selection.ids, selection.fallbackNames);
+    };
 
     const serializeFirestoreValue = (value) => {
       if (value === null || value === undefined) return value ?? null;
@@ -462,6 +660,48 @@
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+    };
+
+    const downloadFullFirestoreBackup = async () => {
+      const [productSnapshot, categorySnapshot, tagSnapshot] = await Promise.all([
+        db.collection('products').get(),
+        db.collection('settings').doc(CATEGORY_SETTINGS_DOC).get(),
+        db.collection('settings').doc(TAG_SETTINGS_DOC).get()
+      ]);
+      const exportedAt = new Date();
+      const settings = [
+        categorySnapshot.exists
+          ? { id: categorySnapshot.id, data: serializeFirestoreValue(categorySnapshot.data()) }
+          : null,
+        tagSnapshot.exists
+          ? { id: tagSnapshot.id, data: serializeFirestoreValue(tagSnapshot.data()) }
+          : null
+      ].filter(Boolean);
+      const productDocuments = productSnapshot.docs.map(doc => ({
+        id: doc.id,
+        data: serializeFirestoreValue(doc.data())
+      }));
+      const payload = {
+        backupFormat: 'peyson-erp-firestore-products-v1',
+        erpVersion: ERP_VERSION,
+        firebaseProjectId: firebaseConfig.projectId,
+        exportedAt: exportedAt.toISOString(),
+        exportedBy: {
+          uid: auth.currentUser?.uid || '',
+          email: auth.currentUser?.email || ''
+        },
+        collections: {
+          products: productDocuments,
+          settings
+        },
+        counts: {
+          products: productDocuments.length,
+          settings: settings.length
+        }
+      };
+      const dateStamp = exportedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+      downloadJsonFile(`Peyson-ERP-Firestore-Backup-${dateStamp}.json`, payload);
+      return payload;
     };
 
     const formatDate = (timestamp) => {
@@ -923,18 +1163,394 @@
     };
 
     // ==========================================
-    // 元件 3：商品建置中心
+    // 元件 3：商品標籤管理
     // ==========================================
-    const AIImportView = ({ onOpenLibrary, categoryCatalog }) => {
+    const ProductTagManagementView = ({ catalog, onSave }) => {
+      const normalizedCatalog = normalizeProductTags(catalog);
+      const [products, setProducts] = useState([]);
+      const [editor, setEditor] = useState(null);
+      const [isSaving, setIsSaving] = useState(false);
+      const [message, setMessage] = useState('');
+      const [error, setError] = useState('');
+
+      useEffect(() => {
+        const unsubscribe = db.collection('products').onSnapshot((snapshot) => {
+          setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (snapshotError) => {
+          setError(`商品使用狀態讀取失敗：${snapshotError.message}`);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const usageCount = (tag) => products.filter(product =>
+        getProductTagSelection(product, normalizedCatalog).ids.includes(tag.id)
+      ).length;
+      const groupUsageCount = (group) => products.filter(product => {
+        const selectedSet = new Set(getProductTagSelection(product, normalizedCatalog).ids);
+        return group.tags.some(tag => selectedSet.has(tag.id));
+      }).length;
+
+      const persist = async (nextCatalog, successText) => {
+        setIsSaving(true);
+        setError('');
+        setMessage('');
+        try {
+          await onSave(normalizeProductTags(nextCatalog));
+          setMessage(`✅ ${successText}`);
+        } catch (saveError) {
+          setError(`商品標籤儲存失敗：${saveError.message}`);
+          throw saveError;
+        } finally {
+          setIsSaving(false);
+        }
+      };
+
+      const openAddGroup = () => setEditor({
+        kind: 'group',
+        mode: 'add',
+        id: '',
+        name: '',
+        active: true
+      });
+
+      const openEditGroup = (group) => setEditor({
+        kind: 'group',
+        mode: 'edit',
+        id: group.id,
+        name: group.name,
+        active: group.active !== false
+      });
+
+      const openAddTag = (group) => setEditor({
+        kind: 'tag',
+        mode: 'add',
+        groupId: group.id,
+        id: '',
+        name: '',
+        active: true
+      });
+
+      const openEditTag = (group, tag) => setEditor({
+        kind: 'tag',
+        mode: 'edit',
+        groupId: group.id,
+        id: tag.id,
+        name: tag.name,
+        active: tag.active !== false
+      });
+
+      const handleEditorSave = async () => {
+        const name = String(editor?.name || '').trim();
+        if (!name) return setError(`${editor?.kind === 'group' ? '群組' : '標籤'}名稱不可空白。`);
+        if (editor?.kind === 'tag' && /[,，\n]/.test(name)) {
+          return setError('標籤名稱不可包含逗號或換行，避免 SHOPLINE 匯出時被拆成多個標籤。');
+        }
+
+        const nextCatalog = cloneData(normalizedCatalog);
+        if (editor.kind === 'group') {
+          const duplicate = nextCatalog.groups.some(group =>
+            group.id !== editor.id && tagValueMatches(group, name)
+          );
+          if (duplicate) return setError('已有相同的標籤群組名稱。');
+
+          if (editor.mode === 'add') {
+            nextCatalog.groups.push(tagGroupNode(makeTagId('tag-group'), name, [], editor.active));
+          } else {
+            const group = nextCatalog.groups.find(item => item.id === editor.id);
+            const oldName = group.name;
+            if (oldName !== name) {
+              group.aliases = Array.from(new Set([...(group.aliases || []), oldName].filter(Boolean)));
+            }
+            group.name = name;
+            group.active = editor.active;
+          }
+        } else {
+          const duplicate = nextCatalog.groups.some(group => group.tags.some(tag =>
+            tag.id !== editor.id && tagValueMatches(tag, name)
+          ));
+          if (duplicate) return setError('已有相同的商品標籤名稱；標籤名稱不可跨群組重複。');
+          const group = nextCatalog.groups.find(item => item.id === editor.groupId);
+          if (!group) return setError('找不到指定的標籤群組，請重新整理後再試。');
+
+          if (editor.mode === 'add') {
+            group.tags.push(tagNode(makeTagId('tag'), name, editor.active));
+          } else {
+            const tag = group.tags.find(item => item.id === editor.id);
+            const oldName = tag.name;
+            if (oldName !== name) {
+              tag.aliases = Array.from(new Set([...(tag.aliases || []), oldName].filter(Boolean)));
+            }
+            tag.name = name;
+            tag.active = editor.active;
+          }
+        }
+
+        try {
+          const itemLabel = editor.kind === 'group' ? '標籤群組' : '商品標籤';
+          await persist(nextCatalog, editor.mode === 'add'
+            ? `${itemLabel}已新增。`
+            : `${itemLabel}已更新；既有商品會透過固定 ID 繼續對應。`);
+          setEditor(null);
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const toggleGroupActive = async (group) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const target = nextCatalog.groups.find(item => item.id === group.id);
+        target.active = !target.active;
+        try {
+          await persist(nextCatalog, `${target.name}已${target.active ? '啟用' : '停用'}。`);
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const toggleTagActive = async (group, tag) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const target = nextCatalog.groups.find(item => item.id === group.id)
+          ?.tags.find(item => item.id === tag.id);
+        target.active = !target.active;
+        try {
+          await persist(nextCatalog, `${target.name}已${target.active ? '啟用' : '停用'}。`);
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const moveGroup = async (group, direction) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const index = nextCatalog.groups.findIndex(item => item.id === group.id);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= nextCatalog.groups.length) return;
+        [nextCatalog.groups[index], nextCatalog.groups[nextIndex]] = [nextCatalog.groups[nextIndex], nextCatalog.groups[index]];
+        try {
+          await persist(nextCatalog, '標籤群組排序已更新。');
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const moveTag = async (group, tag, direction) => {
+        const nextCatalog = cloneData(normalizedCatalog);
+        const tags = nextCatalog.groups.find(item => item.id === group.id)?.tags || [];
+        const index = tags.findIndex(item => item.id === tag.id);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= tags.length) return;
+        [tags[index], tags[nextIndex]] = [tags[nextIndex], tags[index]];
+        try {
+          await persist(nextCatalog, `${group.name}標籤排序已更新。`);
+        } catch {
+          // persist 已顯示錯誤。
+        }
+      };
+
+      const deleteTag = async (group, tag) => {
+        const used = usageCount(tag);
+        if (used > 0) {
+          return setError(`「${tag.name}」已有 ${used} 筆商品使用，不可刪除；請改用停用。`);
+        }
+        if (!window.confirm(`確定永久刪除標籤「${tag.name}」嗎？`)) return;
+        const nextCatalog = cloneData(normalizedCatalog);
+        const targetGroup = nextCatalog.groups.find(item => item.id === group.id);
+        targetGroup.tags = targetGroup.tags.filter(item => item.id !== tag.id);
+        try {
+          await downloadFullFirestoreBackup();
+          await persist(nextCatalog, '未使用標籤已刪除。');
+        } catch {
+          setError('刪除前備份或標籤儲存失敗，未完成刪除。');
+        }
+      };
+
+      const deleteGroup = async (group) => {
+        if (group.tags.length > 0) {
+          return setError(`「${group.name}」仍有 ${group.tags.length} 個標籤；請先移除未使用標籤，或將群組停用。`);
+        }
+        if (groupUsageCount(group) > 0) {
+          return setError(`「${group.name}」已有商品使用，不可刪除；請改用停用。`);
+        }
+        if (!window.confirm(`確定永久刪除空白群組「${group.name}」嗎？`)) return;
+        const nextCatalog = cloneData(normalizedCatalog);
+        nextCatalog.groups = nextCatalog.groups.filter(item => item.id !== group.id);
+        try {
+          await downloadFullFirestoreBackup();
+          await persist(nextCatalog, '空白標籤群組已刪除。');
+        } catch {
+          setError('刪除前備份或標籤儲存失敗，未完成刪除。');
+        }
+      };
+
+      const actionButton = "p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-30 disabled:cursor-not-allowed";
+
+      return (
+        <div className="p-8 max-w-[1500px] mx-auto animate-in fade-in duration-200">
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                <Tags className="w-6 h-6 text-blue-600"/> 商品標籤管理
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">依群組管理可重複使用的標籤，商品可跨群組多選。</p>
+            </div>
+            <button onClick={openAddGroup} disabled={isSaving} className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 disabled:bg-gray-300">
+              <Plus className="w-4 h-4"/> 新增群組
+            </button>
+          </div>
+
+          {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+          {message && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{message}</div>}
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
+            <div className="space-y-5">
+              {normalizedCatalog.groups.map((group, groupIndex) => (
+                <section key={group.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <div className={`px-5 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${group.active ? 'bg-gray-50' : 'bg-gray-100'}`}>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-bold text-gray-800">{group.name}</h3>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] ${group.active ? 'bg-green-50 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                          {group.active ? '群組啟用' : '群組停用'}
+                        </span>
+                        <span className="text-[11px] text-gray-400">{groupUsageCount(group)} 筆商品</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">{group.tags.length} 個標籤</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button className={actionButton} title="群組上移" onClick={() => moveGroup(group, -1)} disabled={isSaving || groupIndex === 0}><ArrowUp className="w-3.5 h-3.5"/></button>
+                      <button className={actionButton} title="群組下移" onClick={() => moveGroup(group, 1)} disabled={isSaving || groupIndex === normalizedCatalog.groups.length - 1}><ArrowDown className="w-3.5 h-3.5"/></button>
+                      <button className={actionButton} title="編輯群組" onClick={() => openEditGroup(group)} disabled={isSaving}><Pencil className="w-3.5 h-3.5"/></button>
+                      <button className={actionButton} title={group.active ? '停用群組' : '啟用群組'} onClick={() => toggleGroupActive(group)} disabled={isSaving}><Power className="w-3.5 h-3.5"/></button>
+                      <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除空白群組" onClick={() => deleteGroup(group)} disabled={isSaving}><Trash2 className="w-3.5 h-3.5"/></button>
+                      <button onClick={() => openAddTag(group)} disabled={isSaving} className="ml-1 inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:bg-gray-300">
+                        <Plus className="w-3.5 h-3.5"/> 新增標籤
+                      </button>
+                    </div>
+                  </div>
+
+                  {group.tags.length === 0 ? (
+                    <div className="px-5 py-10 text-center text-sm text-gray-400">此群組尚未建立標籤。</div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      {group.tags.map((tag, tagIndex) => (
+                        <div key={tag.id} className={`px-5 py-3.5 flex items-center justify-between gap-3 ${tag.active && group.active ? 'bg-white' : 'bg-gray-50'}`}>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-gray-800">{tag.name}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] ${tag.active ? 'bg-green-50 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                                {tag.active ? '啟用' : '停用'}
+                              </span>
+                              <span className="text-[11px] text-gray-400">{usageCount(tag)} 筆商品</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button className={actionButton} title="標籤上移" onClick={() => moveTag(group, tag, -1)} disabled={isSaving || tagIndex === 0}><ArrowUp className="w-3.5 h-3.5"/></button>
+                            <button className={actionButton} title="標籤下移" onClick={() => moveTag(group, tag, 1)} disabled={isSaving || tagIndex === group.tags.length - 1}><ArrowDown className="w-3.5 h-3.5"/></button>
+                            <button className={actionButton} title="編輯標籤" onClick={() => openEditTag(group, tag)} disabled={isSaving}><Pencil className="w-3.5 h-3.5"/></button>
+                            <button className={actionButton} title={tag.active ? '停用標籤' : '啟用標籤'} onClick={() => toggleTagActive(group, tag)} disabled={isSaving}><Power className="w-3.5 h-3.5"/></button>
+                            <button className={`${actionButton} hover:text-red-600 hover:bg-red-50`} title="刪除未使用標籤" onClick={() => deleteTag(group, tag)} disabled={isSaving}><Trash2 className="w-3.5 h-3.5"/></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+
+            <aside className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 h-fit xl:sticky xl:top-6">
+              {editor ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-gray-800">
+                      {editor.mode === 'add' ? '新增' : '編輯'}{editor.kind === 'group' ? '標籤群組' : '商品標籤'}
+                    </h3>
+                    <button onClick={() => setEditor(null)} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X className="w-4 h-4"/></button>
+                  </div>
+                  {editor.kind === 'tag' && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">所屬群組</label>
+                      <select value={editor.groupId} onChange={e => setEditor(current => ({ ...current, groupId: e.target.value }))} disabled={editor.mode === 'edit'} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-100">
+                        {normalizedCatalog.groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">名稱</label>
+                    <input value={editor.name} onChange={e => setEditor(current => ({ ...current, name: e.target.value }))} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"/>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input type="checkbox" checked={editor.active} onChange={e => setEditor(current => ({ ...current, active: e.target.checked }))} className="rounded border-gray-300 text-blue-600"/>
+                    建立後立即啟用
+                  </label>
+                  <button onClick={handleEditorSave} disabled={isSaving} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300">
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4"/>} 儲存
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <Tags className="w-10 h-10 text-blue-200 mb-3"/>
+                  <h3 className="font-bold text-gray-800">商品標籤規則</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-gray-500 list-disc pl-5">
+                    <li>群組與標籤皆可新增、改名、排序及停用。</li>
+                    <li>停用後不供新商品選取，既有商品仍保留。</li>
+                    <li>已被商品使用的標籤不可刪除，只能停用。</li>
+                    <li>標籤名稱不可跨群組重複，以免 SHOPLINE 匯出混淆。</li>
+                  </ul>
+                </div>
+              )}
+            </aside>
+          </div>
+        </div>
+      );
+    };
+
+    const ProductTagSelector = ({ catalog, selectedIds, onToggle }) => {
+      const groups = getSelectableTagGroups(catalog, selectedIds);
+      const selectedNames = getSelectedTagNames(catalog, selectedIds);
+      if (groups.length === 0) {
+        return <div className="rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-sm text-gray-400">尚未建立可用的商品標籤。</div>;
+      }
+      return (
+        <div className="space-y-3">
+          {groups.map(group => (
+            <div key={group.id} className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-gray-600">{group.name}</span>
+                {!group.active && <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">群組已停用</span>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {group.tags.map(tag => {
+                  const checked = selectedIds.includes(tag.id);
+                  return (
+                    <label key={tag.id} className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border cursor-pointer text-sm ${checked ? 'border-blue-300 bg-blue-50 text-blue-800' : 'border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                      <input type="checkbox" checked={checked} onChange={() => onToggle(tag.id)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
+                      <span>{tag.name}</span>
+                      {!tag.active && <span className="text-[10px] text-gray-400">停用</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs text-blue-600">已選：{selectedNames.join('、') || '尚未選擇'}</p>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 元件 4：商品建置中心
+    // ==========================================
+    const AIImportView = ({ onOpenLibrary, categoryCatalog, tagCatalog }) => {
       const selectableCategoryTree = buildCategoryTree(categoryCatalog);
       const firstMainCategory = Object.keys(selectableCategoryTree)[0] || '';
+      const normalizedTags = normalizeProductTags(tagCatalog);
       const [rawText, setRawText] = useState('');
       const [sourceUrl, setSourceUrl] = useState('');
       const [moq, setMoq] = useState(50);
       const [mainCategory, setMainCategory] = useState(firstMainCategory);
       const [subCategory, setSubCategory] = useState(selectableCategoryTree[firstMainCategory]?.[0] || '');
-      const [customizationCrafts, setCustomizationCrafts] = useState(['雷射雕刻']);
-      const [onsiteCustomization, setOnsiteCustomization] = useState('N');
+      const [selectedTagIds, setSelectedTagIds] = useState([]);
+      const [material, setMaterial] = useState('');
       
       const [specImagesBase64, setSpecImagesBase64] = useState([]);
       const specInputRef = useRef(null);
@@ -948,6 +1564,9 @@
       const [isSaving, setIsSaving] = useState(false);
       const [error, setError] = useState('');
       const [successMsg, setSuccessMsg] = useState('');
+      const selectedTagNames = getSelectedTagNames(normalizedTags, selectedTagIds);
+      const customizationCrafts = getTagNamesByGroup(normalizedTags, selectedTagIds, '工藝');
+      const onsiteCustomization = selectedTagNames.includes('現場客製') ? 'Y' : 'N';
 
       useEffect(() => {
         if (!selectableCategoryTree[mainCategory]) {
@@ -958,33 +1577,28 @@
         }
       }, [categoryCatalog]);
 
+      useEffect(() => {
+        setSelectedTagIds(previous => previous.filter(id => Boolean(findTagRecord(normalizedTags, id))));
+      }, [tagCatalog]);
+
       const handleMainCategoryChange = (e) => {
         const selectedMain = e.target.value;
         setMainCategory(selectedMain);
         setSubCategory(selectableCategoryTree[selectedMain]?.[0] || '');
       };
-      const toggleCustomizationCraft = (craft) => {
-        const nextCrafts = customizationCrafts.includes(craft)
-          ? customizationCrafts.filter(item => item !== craft)
-          : [...customizationCrafts, craft];
-        setCustomizationCrafts(nextCrafts);
+      const toggleProductTag = (tagId) => {
+        const nextTagIds = selectedTagIds.includes(tagId)
+          ? selectedTagIds.filter(id => id !== tagId)
+          : [...selectedTagIds, tagId];
+        const nextTagNames = getSelectedTagNames(normalizedTags, nextTagIds);
+        const nextCrafts = getTagNamesByGroup(normalizedTags, nextTagIds, '工藝');
+        const nextOnsite = nextTagNames.includes('現場客製') ? 'Y' : 'N';
+        setSelectedTagIds(nextTagIds);
         setAiResult(current => current
           ? {
               ...current,
-              product_highlights_zh: applyCustomizationHighlights(current.product_highlights_zh, nextCrafts, onsiteCustomization, 'zh'),
-              product_highlights_en: applyCustomizationHighlights(current.product_highlights_en, nextCrafts, onsiteCustomization, 'en')
-            }
-          : current);
-      };
-      const handleImportOnsiteCustomization = (value) => {
-        setOnsiteCustomization(value);
-        setAiResult(current => current
-          ? {
-              ...current,
-              product_highlights_zh: applyCustomizationHighlights(current.product_highlights_zh, customizationCrafts, value, 'zh'),
-              product_highlights_en: applyCustomizationHighlights(current.product_highlights_en, customizationCrafts, value, 'en'),
-              description_zh: stripOnsiteCopy(current.description_zh, 'zh'),
-              description_en: stripOnsiteCopy(current.description_en, 'en')
+              product_highlights_zh: applyCustomizationHighlights(current.product_highlights_zh, nextCrafts, nextOnsite, 'zh', normalizedTags),
+              product_highlights_en: applyCustomizationHighlights(current.product_highlights_en, nextCrafts, nextOnsite, 'en', normalizedTags)
             }
           : current);
       };
@@ -1012,25 +1626,26 @@
 
           if (docData.status === 'completed' && docData.aiResult) {
             const originalDraft = cloneData(docData.aiResult);
-            const previewCrafts = normalizeCustomizationCrafts(
-              docData.finalData?.customization_crafts,
-              docData.customOptionList,
-              docData.customizationCraft,
-              docData.customOptions
-            );
-            const previewOnsite = docData.finalData?.onsite_customization || docData.onsiteCustomization || 'N';
+            const previewSelection = getProductTagSelection({ id: snapshot.id, ...docData }, normalizedTags);
+            const previewTagNames = getSelectedTagNames(normalizedTags, previewSelection.ids, previewSelection.fallbackNames);
+            const previewCrafts = getTagNamesByGroup(normalizedTags, previewSelection.ids, '工藝');
+            const previewOnsite = previewTagNames.includes('現場客製')
+              ? 'Y'
+              : (docData.finalData?.onsite_customization || docData.onsiteCustomization || 'N');
             const normalizedResult = cloneData(docData.finalData || originalDraft);
             normalizedResult.product_highlights_zh = applyCustomizationHighlights(
               normalizedResult.product_highlights_zh,
               previewCrafts,
               previewOnsite,
-              'zh'
+              'zh',
+              normalizedTags
             );
             normalizedResult.product_highlights_en = applyCustomizationHighlights(
               normalizedResult.product_highlights_en,
               previewCrafts,
               previewOnsite,
-              'en'
+              'en',
+              normalizedTags
             );
             normalizedResult.description_zh = stripOnsiteCopy(normalizedResult.description_zh, 'zh');
             normalizedResult.description_en = stripOnsiteCopy(normalizedResult.description_en, 'en');
@@ -1053,11 +1668,10 @@
         });
 
         return () => unsubscribe();
-      }, [activeJobId]);
+      }, [activeJobId, tagCatalog]);
 
       const handleGenerate = async () => {
         if (!rawText.trim() && specImagesBase64.length === 0) return setError('請貼上文字說明或上傳規格圖片！');
-        if (customizationCrafts.length === 0) return setError('請至少選擇一項客製工藝。');
         
         setError(''); setSuccessMsg(''); setIsGenerating(true); 
 
@@ -1100,7 +1714,10 @@
             customOptions: customizationCrafts.join('、'),
             customOptionList: customizationCrafts,
             customizationCraft: customizationCrafts.join('、'),
+            requestedMaterial: material,
             onsiteCustomization,
+            productTagIds: selectedTagIds,
+            productTags: selectedTagNames,
             aiModel: aiModel,
             createdBy: {
               uid: auth.currentUser?.uid || '',
@@ -1134,23 +1751,31 @@
         try {
           const finalData = {
             ...cloneData(aiResult),
+            extracted: {
+              ...(cloneData(aiResult).extracted || {}),
+              material: material || cloneData(aiResult).extracted?.material || ''
+            },
             category: categoryPath(mainCategory, subCategory, categoryCatalog),
             target_moq: Number(moq) || 0,
             requested_customization: customizationCrafts.join('、'),
             customization_craft: customizationCrafts.join('、'),
             customization_crafts: customizationCrafts,
             onsite_customization: onsiteCustomization,
+            product_tag_ids: selectedTagIds,
+            product_tags: selectedTagNames,
             product_highlights_zh: applyCustomizationHighlights(
               aiResult.product_highlights_zh,
               customizationCrafts,
               onsiteCustomization,
-              'zh'
+              'zh',
+              normalizedTags
             ),
             product_highlights_en: applyCustomizationHighlights(
               aiResult.product_highlights_en,
               customizationCrafts,
               onsiteCustomization,
-              'en'
+              'en',
+              normalizedTags
             ),
             description_zh: stripOnsiteCopy(aiResult.description_zh, 'zh'),
             description_en: stripOnsiteCopy(aiResult.description_en, 'en'),
@@ -1173,7 +1798,10 @@
             customOptions: customizationCrafts.join('、'),
             customOptionList: customizationCrafts,
             customizationCraft: customizationCrafts.join('、'),
+            requestedMaterial: material,
             onsiteCustomization,
+            productTagIds: selectedTagIds,
+            productTags: selectedTagNames,
             sourceUrl: sourceUrl.trim(),
             savedBy: {
               uid: auth.currentUser?.uid || '',
@@ -1249,28 +1877,16 @@
                       <p className="mt-2 text-xs text-blue-600">匯出路徑：{categoryPath(mainCategory, subCategory, categoryCatalog)}</p>
                     </div>
                     <div><label className="block text-sm font-bold text-gray-700 mb-2">企業起訂量 (MOQ)</label><input value={moq} onChange={e => setMoq(e.target.value)} type="number" className="w-full p-2 border border-gray-300 rounded-xl text-sm" /></div>
+                    <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-2">材質</label>
+                      <input value={material} onChange={e => setMaterial(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm" placeholder="未指定時由 AI 從來源擷取"/>
+                      <p className="mt-2 text-xs text-gray-500">此欄為商品規格文字；材質標籤請在下方另外勾選。</p>
+                    </div>
                   </div>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">客製工藝（可複選）</label>
-                      <div className="rounded-xl border border-gray-300 bg-white p-2 space-y-1">
-                        {customizationOptions.map(option => (
-                          <label key={option} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer text-sm">
-                            <input type="checkbox" checked={customizationCrafts.includes(option)} onChange={() => toggleCustomizationCraft(option)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
-                            <span>{option}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs text-blue-600">已選：{customizationCrafts.join('、') || '尚未選擇'}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-2">活動現場客製</label>
-                      <select value={onsiteCustomization} onChange={e => handleImportOnsiteCustomization(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl text-sm bg-white">
-                        <option value="N">不可</option>
-                        <option value="Y">可</option>
-                      </select>
-                      {onsiteCustomization === 'Y' && <p className="mt-2 text-xs text-green-700">儲存時會在中英文商品特色加入活動現場客製工藝。</p>}
-                    </div>
+                  <div className="space-y-2">
+                    <label className="block text-sm font-bold text-gray-700">商品標籤（可跨群組多選）</label>
+                    <ProductTagSelector catalog={normalizedTags} selectedIds={selectedTagIds} onToggle={toggleProductTag}/>
+                    <p className="text-xs text-gray-500">標籤會保存至 ERP，並在 SHOPLINE 匯出時寫入 Product Tag。</p>
                   </div>
                 </div>
               </div>
@@ -1319,7 +1935,8 @@
       );
     };
 
-    const ProductEditor = ({ product, onBack, categoryCatalog }) => {
+    const ProductEditor = ({ product, onBack, categoryCatalog, tagCatalog }) => {
+      const normalizedTags = normalizeProductTags(tagCatalog);
       const baseData = getWorkingData(product);
       const parsedCategory = getCategoryParts(product, baseData, categoryCatalog);
       const editorCategoryTree = buildCategoryTree(categoryCatalog);
@@ -1333,34 +1950,33 @@
       const initialCategory = isValidCategory(parsedCategory.main, parsedCategory.sub, categoryCatalog)
         ? parsedCategory
         : { main: fallbackMain, sub: editorCategoryTree[fallbackMain]?.[0] || '' };
-      const initialCrafts = normalizeCustomizationCrafts(
-        baseData.customization_crafts,
-        baseData.customization_craft,
-        baseData.requested_customization,
-        product.customOptionList,
-        product.customizationCraft,
-        product.customOptions
-      );
-      const initialOnsiteCustomization = baseData.onsite_customization || product.onsiteCustomization || 'N';
+      const initialTagSelection = getProductTagSelection(product, normalizedTags);
+      const initialTagNames = getSelectedTagNames(normalizedTags, initialTagSelection.ids, initialTagSelection.fallbackNames);
+      const initialCrafts = getTagNamesByGroup(normalizedTags, initialTagSelection.ids, '工藝');
+      const initialOnsiteCustomization = initialTagNames.includes('現場客製')
+        ? 'Y'
+        : (baseData.onsite_customization || product.onsiteCustomization || 'N');
       const [formData, setFormData] = useState({
         title_zh: baseData.title_zh || '',
         title_en: baseData.title_en || '',
         description_zh: stripOnsiteCopy(baseData.description_zh, 'zh'),
         description_en: stripOnsiteCopy(baseData.description_en, 'en'),
-        highlights_zh: joinLines(applyCustomizationHighlights(baseData.product_highlights_zh, initialCrafts, initialOnsiteCustomization, 'zh')),
-        highlights_en: joinLines(applyCustomizationHighlights(baseData.product_highlights_en, initialCrafts, initialOnsiteCustomization, 'en')),
+        highlights_zh: joinLines(applyCustomizationHighlights(baseData.product_highlights_zh, initialCrafts, initialOnsiteCustomization, 'zh', normalizedTags)),
+        highlights_en: joinLines(applyCustomizationHighlights(baseData.product_highlights_en, initialCrafts, initialOnsiteCustomization, 'en', normalizedTags)),
         seo_title_zh: baseData.seo_title_zh || '',
         seo_title_en: baseData.seo_title_en || '',
         seo_description_zh: baseData.seo_description_zh || '',
         seo_description_en: baseData.seo_description_en || '',
         seo_keywords: Array.isArray(baseData.seo_keywords) ? baseData.seo_keywords.join(', ') : '',
         source_url: baseData.source_url || product.sourceUrl || '',
-        material: baseData.extracted?.material || '',
+        material: getProductMaterial(product),
         dimensions: baseData.extracted?.dimensions || '',
         capacity: baseData.extracted?.capacity || '',
         weight: baseData.extracted?.weight || '',
         colors: joinLines(baseData.extracted?.colors),
         target_moq: baseData.target_moq ?? product.moq ?? '',
+        product_tag_ids: initialTagSelection.ids,
+        product_tag_fallback_names: initialTagSelection.fallbackNames,
         customization_crafts: initialCrafts,
         onsite_customization: initialOnsiteCustomization,
         product_handle: buildProductHandle(product),
@@ -1382,6 +1998,34 @@
       const [message, setMessage] = useState('');
       const [error, setError] = useState('');
 
+      useEffect(() => {
+        setFormData(previous => {
+          const nextTagIds = previous.product_tag_ids.filter(id => Boolean(findTagRecord(normalizedTags, id)));
+          const nextTagNames = getSelectedTagNames(normalizedTags, nextTagIds, previous.product_tag_fallback_names);
+          const nextCrafts = getTagNamesByGroup(normalizedTags, nextTagIds, '工藝');
+          const nextOnsite = nextTagNames.includes('現場客製') ? 'Y' : 'N';
+          const craftsUnchanged = nextCrafts.length === previous.customization_crafts.length
+            && nextCrafts.every((craft, index) => craft === previous.customization_crafts[index]);
+          const tagsUnchanged = nextTagIds.length === previous.product_tag_ids.length
+            && nextTagIds.every((id, index) => id === previous.product_tag_ids[index]);
+          if (craftsUnchanged && tagsUnchanged && nextOnsite === previous.onsite_customization) return previous;
+          return {
+            ...previous,
+            product_tag_ids: nextTagIds,
+            customization_crafts: nextCrafts,
+            onsite_customization: nextOnsite,
+            highlights_zh: joinLines(applyCustomizationHighlights(previous.highlights_zh, nextCrafts, nextOnsite, 'zh', normalizedTags)),
+            highlights_en: joinLines(applyCustomizationHighlights(previous.highlights_en, nextCrafts, nextOnsite, 'en', normalizedTags))
+          };
+        });
+      }, [tagCatalog]);
+
+      const selectedProductTagNames = getSelectedTagNames(
+        normalizedTags,
+        formData.product_tag_ids,
+        formData.product_tag_fallback_names
+      );
+
       const previewFinalData = {
         ...getWorkingData(product),
         title_zh: formData.title_zh.trim(),
@@ -1390,18 +2034,22 @@
           formData.highlights_zh,
           formData.customization_crafts,
           formData.onsite_customization,
-          'zh'
+          'zh',
+          normalizedTags
         ),
         product_highlights_en: applyCustomizationHighlights(
           formData.highlights_en,
           formData.customization_crafts,
           formData.onsite_customization,
-          'en'
+          'en',
+          normalizedTags
         ),
         category: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
         product_handle: formData.product_handle.trim(),
         main_image_urls: normalizeUrlList(formData.main_image_urls, '', Number.MAX_SAFE_INTEGER),
         additional_image_urls: normalizeUrlList(formData.additional_image_urls, '', Number.MAX_SAFE_INTEGER),
+        product_tag_ids: formData.product_tag_ids,
+        product_tags: selectedProductTagNames,
         customization_crafts: formData.customization_crafts,
         onsite_customization: formData.onsite_customization
       };
@@ -1411,24 +2059,31 @@
         categoryMain: formData.categoryMain,
         categorySub: formData.categorySub,
         productHandle: formData.product_handle.trim(),
+        productTagIds: formData.product_tag_ids,
+        productTags: selectedProductTagNames,
         customOptionList: formData.customization_crafts,
         onsiteCustomization: formData.onsite_customization
       };
-      const previewExportIssues = getExportIssues(previewProduct, categoryCatalog);
+      const previewExportIssues = getExportIssues(previewProduct, categoryCatalog, normalizedTags);
       const previewSummaryZhLength = buildSummary(previewFinalData.product_highlights_zh).length;
       const previewSummaryEnLength = buildSummary(previewFinalData.product_highlights_en).length;
 
       const updateField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
-      const toggleEditorCraft = (craft) => {
+      const toggleEditorTag = (tagId) => {
         setFormData(prev => {
-          const nextCrafts = prev.customization_crafts.includes(craft)
-            ? prev.customization_crafts.filter(item => item !== craft)
-            : [...prev.customization_crafts, craft];
+          const nextTagIds = prev.product_tag_ids.includes(tagId)
+            ? prev.product_tag_ids.filter(id => id !== tagId)
+            : [...prev.product_tag_ids, tagId];
+          const nextTagNames = getSelectedTagNames(normalizedTags, nextTagIds, prev.product_tag_fallback_names);
+          const nextCrafts = getTagNamesByGroup(normalizedTags, nextTagIds, '工藝');
+          const nextOnsite = nextTagNames.includes('現場客製') ? 'Y' : 'N';
           return {
             ...prev,
+            product_tag_ids: nextTagIds,
             customization_crafts: nextCrafts,
-            highlights_zh: joinLines(applyCustomizationHighlights(prev.highlights_zh, nextCrafts, prev.onsite_customization, 'zh')),
-            highlights_en: joinLines(applyCustomizationHighlights(prev.highlights_en, nextCrafts, prev.onsite_customization, 'en'))
+            onsite_customization: nextOnsite,
+            highlights_zh: joinLines(applyCustomizationHighlights(prev.highlights_zh, nextCrafts, nextOnsite, 'zh', normalizedTags)),
+            highlights_en: joinLines(applyCustomizationHighlights(prev.highlights_en, nextCrafts, nextOnsite, 'en', normalizedTags))
           };
         });
       };
@@ -1452,25 +2107,10 @@
       const handleCategoryMain = (main) => {
         setFormData(prev => ({ ...prev, categoryMain: main, categorySub: editorCategoryTree[main]?.[0] || '' }));
       };
-      const handleOnsiteCustomization = (value) => {
-        setFormData(prev => ({
-          ...prev,
-          onsite_customization: value,
-          highlights_zh: joinLines(applyCustomizationHighlights(prev.highlights_zh, prev.customization_crafts, value, 'zh')),
-          highlights_en: joinLines(applyCustomizationHighlights(prev.highlights_en, prev.customization_crafts, value, 'en')),
-          description_zh: stripOnsiteCopy(prev.description_zh, 'zh'),
-          description_en: stripOnsiteCopy(prev.description_en, 'en')
-        }));
-      };
-
       const handleContentSync = async () => {
         if (!formData.title_zh.trim()) {
           return setError('請先填寫繁中商品名稱，再執行同步處理。');
         }
-        if (formData.customization_crafts.length === 0) {
-          return setError('請至少選擇一項客製工藝。');
-        }
-
         setIsSyncingContent(true);
         setError('');
         setMessage('');
@@ -1498,6 +2138,7 @@
               },
               customization_crafts: formData.customization_crafts,
               onsite_customization: formData.onsite_customization,
+              product_tags: selectedProductTagNames,
               current_copy: {
                 product_highlights_zh: stripManagedHighlights(formData.highlights_zh, 'zh'),
                 description_zh: stripOnsiteCopy(formData.description_zh, 'zh'),
@@ -1519,13 +2160,15 @@
               synced.product_highlights_zh,
               prev.customization_crafts,
               prev.onsite_customization,
-              'zh'
+              'zh',
+              normalizedTags
             )),
             highlights_en: joinLines(applyCustomizationHighlights(
               synced.product_highlights_en,
               prev.customization_crafts,
               prev.onsite_customization,
-              'en'
+              'en',
+              normalizedTags
             )),
             description_zh: stripOnsiteCopy(synced.description_zh, 'zh'),
             description_en: stripOnsiteCopy(synced.description_en, 'en'),
@@ -1568,7 +2211,8 @@
                 formData.highlights_zh,
                 formData.customization_crafts,
                 formData.onsite_customization,
-                'zh'
+                'zh',
+                normalizedTags
               ),
               description_zh: stripOnsiteCopy(formData.description_zh, 'zh'),
               seo_title_zh: formData.seo_title_zh.trim(),
@@ -1587,13 +2231,15 @@
               prev.highlights_zh,
               prev.customization_crafts,
               prev.onsite_customization,
-              'zh'
+              'zh',
+              normalizedTags
             )),
             highlights_en: joinLines(applyCustomizationHighlights(
               translated.product_highlights_en,
               prev.customization_crafts,
               prev.onsite_customization,
-              'en'
+              'en',
+              normalizedTags
             )),
             description_zh: stripOnsiteCopy(prev.description_zh, 'zh'),
             description_en: stripOnsiteCopy(translated.description_en, 'en'),
@@ -1615,7 +2261,6 @@
         if (!formData.product_handle.trim()) {
           return setError('商品編號不可留白。');
         }
-        if (formData.customization_crafts.length === 0) return setError('請至少選擇一項客製工藝。');
         const mainImageUrls = normalizeUrlList(formData.main_image_urls, '', Number.MAX_SAFE_INTEGER);
         const additionalImageUrls = normalizeUrlList(formData.additional_image_urls, '', Number.MAX_SAFE_INTEGER);
         if (mainImageUrls.length > MAX_MAIN_IMAGES) return setError(`商品主要圖片最多 ${MAX_MAIN_IMAGES} 張。`);
@@ -1643,13 +2288,15 @@
               formData.highlights_zh,
               formData.customization_crafts,
               formData.onsite_customization,
-              'zh'
+              'zh',
+              normalizedTags
             ),
             product_highlights_en: applyCustomizationHighlights(
               formData.highlights_en,
               formData.customization_crafts,
               formData.onsite_customization,
-              'en'
+              'en',
+              normalizedTags
             ),
             seo_title_zh: formData.seo_title_zh.trim(),
             seo_title_en: formData.seo_title_en.trim(),
@@ -1671,6 +2318,8 @@
             customization_craft: formData.customization_crafts.join('、'),
             customization_crafts: formData.customization_crafts,
             onsite_customization: formData.onsite_customization,
+            product_tag_ids: formData.product_tag_ids,
+            product_tags: selectedProductTagNames,
             product_handle: formData.product_handle.trim(),
             main_image_url: mainImageUrls[0] || '',
             main_image_urls: mainImageUrls,
@@ -1687,6 +2336,8 @@
             categoryPath: categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog),
             productHandle: formData.product_handle.trim(),
             moq: Number(formData.target_moq) || 0,
+            productTagIds: formData.product_tag_ids,
+            productTags: selectedProductTagNames,
             customOptions: formData.customization_crafts.join('、'),
             customOptionList: formData.customization_crafts,
             customizationCraft: formData.customization_crafts.join('、'),
@@ -1726,7 +2377,7 @@
                 onClick={handleContentSync}
                 disabled={isSaving || isSyncingContent || isSyncingEnglish}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white rounded-lg font-bold flex items-center gap-2"
-                title="依上方最新名稱、規格與客製方式，更新下方中英文文案與 SEO"
+                title="依上方最新名稱、規格與商品標籤，更新下方中英文文案與 SEO"
               >
                 {isSyncingContent ? <Loader2 className="w-4 h-4 animate-spin"/> : <RefreshCw className="w-4 h-4"/>}
                 {isSyncingContent ? '同步處理中…' : '同步處理'}
@@ -1775,27 +2426,11 @@
                 <div><label className={labelClass}>第三層分類</label><select className={fieldClass} value={formData.categorySub} onChange={e => updateField('categorySub', e.target.value)} disabled={!editorCategoryTree[formData.categoryMain]?.length}>{editorCategoryTree[formData.categoryMain]?.length > 0 ? editorCategoryTree[formData.categoryMain].map(item => <option key={item}>{item}</option>) : <option value="">無第三層分類</option>}</select></div>
               </div>
               <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">SHOPLINE 匯出路徑：{categoryPath(formData.categoryMain, formData.categorySub, categoryCatalog)}</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
-                <div>
-                  <label className={labelClass}>客製工藝（可複選）</label>
-                  <div className="rounded-lg border border-gray-200 bg-white p-2 space-y-1">
-                    {customizationOptions.map(option => (
-                      <label key={option} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-blue-50 cursor-pointer text-sm">
-                        <input type="checkbox" checked={formData.customization_crafts.includes(option)} onChange={() => toggleEditorCraft(option)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
-                        <span>{option}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <div><label className={labelClass}>目標 MOQ</label><input type="number" className={fieldClass} value={formData.target_moq} onChange={e => updateField('target_moq', e.target.value)}/></div>
               <div>
-                <label className={labelClass}>活動現場客製</label>
-                <select className={fieldClass} value={formData.onsite_customization} onChange={e => handleOnsiteCustomization(e.target.value)}>
-                  <option value="N">不可</option>
-                  <option value="Y">可</option>
-                </select>
-                {formData.onsite_customization === 'Y' && <p className="mt-2 text-xs text-green-700">中英文商品特色已加入活動現場客製工藝。</p>}
+                <label className={labelClass}>商品標籤（可跨群組多選）</label>
+                <ProductTagSelector catalog={normalizedTags} selectedIds={formData.product_tag_ids} onToggle={toggleEditorTag}/>
+                <p className="mt-2 text-xs text-gray-500">已選標籤會輸出至 SHOPLINE Product Tag；工藝與現場客製標籤也會同步整理商品特色。</p>
               </div>
             </section>
 
@@ -1803,7 +2438,11 @@
               <h3 className="font-bold text-gray-800 border-b pb-3">規格資料</h3>
               <p className="text-xs text-gray-400">尺寸、容量、重量、材質皆為選填；沒有來源資料時可留白。</p>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className={labelClass}>材質</label><input className={fieldClass} value={formData.material} onChange={e => updateField('material', e.target.value)}/></div>
+                <div>
+                  <label className={labelClass}>材質</label>
+                  <input className={fieldClass} value={formData.material} onChange={e => updateField('material', e.target.value)} placeholder="例如：K9 水晶、304 不鏽鋼"/>
+                  <p className="mt-1.5 text-xs text-gray-400">此欄是實際商品規格；材質標籤在左側標籤區勾選。</p>
+                </div>
                 <div><label className={labelClass}>容量</label><input className={fieldClass} value={formData.capacity} onChange={e => updateField('capacity', e.target.value)}/></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1874,7 +2513,7 @@
               <div className="border-b pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-gray-800">商品文案</h3>
-                  <p className="text-xs text-gray-400 mt-1">「同步處理」依最新名稱、規格與客製方式更新全部文案；「僅同步英文」適合翻譯人工修改後的繁中內容。</p>
+                  <p className="text-xs text-gray-400 mt-1">「同步處理」依最新名稱、規格與商品標籤更新全部文案；「僅同步英文」適合翻譯人工修改後的繁中內容。</p>
                 </div>
                 <button onClick={handleEnglishSync} disabled={isSaving || isSyncingContent || isSyncingEnglish} className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 disabled:bg-gray-100 disabled:text-gray-400 text-indigo-700 text-sm font-bold">
                   {isSyncingEnglish ? <Loader2 className="w-4 h-4 animate-spin"/> : <Languages className="w-4 h-4"/>}
@@ -1912,7 +2551,7 @@
       );
     };
 
-    const ProductLibraryView = ({ defaultStatusFilter = 'all', title = '商品庫', categoryCatalog }) => {
+    const ProductLibraryView = ({ defaultStatusFilter = 'all', title = '商品庫', categoryCatalog, tagCatalog }) => {
       const [products, setProducts] = useState([]);
       const [selectedProductId, setSelectedProductId] = useState('');
       const [selectedIds, setSelectedIds] = useState([]);
@@ -1948,7 +2587,7 @@
 
       const selectedProduct = products.find(product => product.id === selectedProductId);
       if (selectedProduct) {
-        return <ProductEditor product={selectedProduct} onBack={() => setSelectedProductId('')} categoryCatalog={categoryCatalog} />;
+        return <ProductEditor product={selectedProduct} onBack={() => setSelectedProductId('')} categoryCatalog={categoryCatalog} tagCatalog={tagCatalog} />;
       }
 
       const normalizedSearch = searchText.trim().toLowerCase();
@@ -1961,6 +2600,7 @@
           data.title_en,
           product.categoryPath,
           data.category,
+          getProductTagNames(product, tagCatalog).join(' '),
           product.id
         ].filter(Boolean).join(' ').toLowerCase();
         return matchesStatus && (!normalizedSearch || haystack.includes(normalizedSearch));
@@ -2008,6 +2648,7 @@
         setActionBusyId('bulk-archive');
         setError('');
         try {
+          await downloadFullProductBackup({ automatic: true });
           const batch = db.batch();
           selectedProductsForAction.forEach(product => {
             batch.update(db.collection('products').doc(product.id), {
@@ -2041,39 +2682,9 @@
           setExportMessage('');
         }
         try {
-          const [productSnapshot, categorySnapshot] = await Promise.all([
-            db.collection('products').get(),
-            db.collection('settings').doc(CATEGORY_SETTINGS_DOC).get()
-          ]);
-          const exportedAt = new Date();
-          const productDocuments = productSnapshot.docs.map(doc => ({
-            id: doc.id,
-            data: serializeFirestoreValue(doc.data())
-          }));
-          const payload = {
-            backupFormat: 'peyson-erp-firestore-products-v1',
-            erpVersion: ERP_VERSION,
-            firebaseProjectId: firebaseConfig.projectId,
-            exportedAt: exportedAt.toISOString(),
-            exportedBy: {
-              uid: auth.currentUser?.uid || '',
-              email: auth.currentUser?.email || ''
-            },
-            collections: {
-              products: productDocuments,
-              settings: categorySnapshot.exists
-                ? [{ id: categorySnapshot.id, data: serializeFirestoreValue(categorySnapshot.data()) }]
-                : []
-            },
-            counts: {
-              products: productDocuments.length,
-              settings: categorySnapshot.exists ? 1 : 0
-            }
-          };
-          const dateStamp = exportedAt.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-          downloadJsonFile(`Peyson-ERP-Firestore-Backup-${dateStamp}.json`, payload);
+          const payload = await downloadFullFirestoreBackup();
           if (!automatic) {
-            setExportMessage(`✅ 已備份全部 ${productDocuments.length} 筆商品資料與分類設定。`);
+            setExportMessage(`✅ 已備份全部 ${payload.counts.products} 筆商品資料與 ${payload.counts.settings} 份資料管理設定。`);
           }
           return payload;
         } catch (backupError) {
@@ -2121,7 +2732,7 @@
         selectedProducts.forEach(product => {
           const handle = buildProductHandle(product);
           if (handle) handleCounts[handle] = (handleCounts[handle] || 0) + 1;
-          const issues = getExportIssues(product, categoryCatalog);
+          const issues = getExportIssues(product, categoryCatalog, tagCatalog);
           if (issues.length > 0) {
             const data = getWorkingData(product);
             errorLines.push(`${data.title_zh || data.title_en || product.id}：${issues.join('、')}`);
@@ -2146,7 +2757,7 @@
         const selectedProducts = getValidatedSelection();
         if (!selectedProducts) return;
 
-        const rows = [shoplineHeadersEn, shoplineHeadersZh, ...selectedProducts.map(product => buildShoplineRow(product, categoryCatalog))];
+        const rows = [shoplineHeadersEn, shoplineHeadersZh, ...selectedProducts.map(product => buildShoplineRow(product, categoryCatalog, tagCatalog))];
         try {
           if (!window.XLSX) {
             setExportError('Excel 匯出元件尚未載入，請重新整理頁面後再試。');
@@ -2192,7 +2803,7 @@
           <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 flex flex-col md:flex-row gap-3 shadow-sm">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400"/>
-              <input value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="搜尋商品名稱、分類或 Firestore ID"/>
+              <input value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="搜尋商品名稱、分類、標籤或 Firestore ID"/>
             </div>
             <div className="relative">
               <Filter className="w-4 h-4 absolute left-3 top-3 text-gray-400"/>
@@ -2267,7 +2878,8 @@
                     {filteredProducts.map(product => {
                       const data = getWorkingData(product);
                       const state = getProductState(product);
-                      const exportIssues = getExportIssues(product, categoryCatalog);
+                      const exportIssues = getExportIssues(product, categoryCatalog, tagCatalog);
+                      const tagNames = getProductTagNames(product, tagCatalog);
                       const isSelected = selectedSet.has(product.id);
                       return (
                         <tr key={product.id} className="hover:bg-gray-50">
@@ -2278,6 +2890,12 @@
                           </td>
                           <td className="px-5 py-4">
                             <div className="font-bold text-gray-800">{data.title_zh || data.title_en || '等待 AI 產生名稱'}</div>
+                            {tagNames.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {tagNames.slice(0, 5).map(tag => <span key={tag} className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">{tag}</span>)}
+                                {tagNames.length > 5 && <span className="text-[10px] text-gray-400">+{tagNames.length - 5}</span>}
+                              </div>
+                            )}
                             <div className="text-xs text-gray-400 mt-1">{product.id}</div>
                           </td>
                           <td className="px-5 py-4 text-gray-600">{getShoplineCategory(product, data, categoryCatalog) || '分類待修正'}</td>
@@ -2328,7 +2946,9 @@
       const [expandedGroup, setExpandedGroup] = useState('');
       const [currentUser, setCurrentUser] = useState(null);
       const [categoryCatalog, setCategoryCatalog] = useState(normalizeCategoryCatalog(DEFAULT_CATEGORY_CATALOG));
+      const [tagCatalog, setTagCatalog] = useState(normalizeProductTags(DEFAULT_PRODUCT_TAGS));
       const [categorySettingsError, setCategorySettingsError] = useState('');
+      const [tagSettingsError, setTagSettingsError] = useState('');
 
       // ✅ 監聽 Firebase 的登入狀態，解決重新整理跳回登入頁的問題
       useEffect(() => {
@@ -2379,6 +2999,40 @@
         return () => unsubscribe();
       }, [isLoggedIn]);
 
+      useEffect(() => {
+        if (!isLoggedIn) return undefined;
+        const settingsRef = db.collection('settings').doc(TAG_SETTINGS_DOC);
+        const unsubscribe = settingsRef.onSnapshot(async (snapshot) => {
+          if (snapshot.exists && Array.isArray(snapshot.data().groups)) {
+            setTagCatalog(normalizeProductTags(snapshot.data()));
+            setTagSettingsError('');
+            return;
+          }
+
+          try {
+            const defaults = normalizeProductTags(DEFAULT_PRODUCT_TAGS);
+            await settingsRef.set({
+              ...defaults,
+              schemaVersion: 1,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              updatedBy: {
+                uid: auth.currentUser?.uid || '',
+                email: auth.currentUser?.email || ''
+              }
+            }, { merge: true });
+            setTagCatalog(defaults);
+          } catch (seedError) {
+            console.error('商品標籤母資料初始化失敗:', seedError);
+            setTagSettingsError(`商品標籤母資料目前使用內建預設值：${seedError.message}`);
+          }
+        }, (snapshotError) => {
+          console.error('商品標籤母資料載入失敗:', snapshotError);
+          setTagSettingsError(`商品標籤母資料載入失敗，目前使用內建預設值：${snapshotError.message}`);
+        });
+        return () => unsubscribe();
+      }, [isLoggedIn]);
+
       const handleSaveCategoryCatalog = async (nextCatalog) => {
         const normalized = normalizeCategoryCatalog(nextCatalog);
         await db.collection('settings').doc(CATEGORY_SETTINGS_DOC).set({
@@ -2393,6 +3047,21 @@
         }, { merge: true });
         setCategoryCatalog(normalized);
         setCategorySettingsError('');
+      };
+
+      const handleSaveTagCatalog = async (nextCatalog) => {
+        const normalized = normalizeProductTags(nextCatalog);
+        await db.collection('settings').doc(TAG_SETTINGS_DOC).set({
+          ...normalized,
+          schemaVersion: 1,
+          updatedAt: serverTimestamp(),
+          updatedBy: {
+            uid: auth.currentUser?.uid || '',
+            email: auth.currentUser?.email || ''
+          }
+        }, { merge: true });
+        setTagCatalog(normalized);
+        setTagSettingsError('');
       };
 
       // 執行登出
@@ -2415,9 +3084,7 @@
           emoji: '📁',
           items: [
             { id: 'categories', label: '商品分類' },
-            { label: '品牌管理', disabled: true },
-            { label: '材質管理', disabled: true },
-            { label: '工藝管理', disabled: true },
+            { id: 'tags', label: '商品標籤' },
             { label: '供應商管理', disabled: true }
           ]
         },
@@ -2533,10 +3200,16 @@
                 {categorySettingsError}
               </div>
             )}
-            {activeTab === 'ai-import' && <AIImportView onOpenLibrary={() => setActiveTab('products')} categoryCatalog={categoryCatalog} />}
-            {activeTab === 'products' && <ProductLibraryView key="products" categoryCatalog={categoryCatalog} />}
-            {activeTab === 'archived-products' && <ProductLibraryView key="archived-products" defaultStatusFilter="archived" title="封存商品" categoryCatalog={categoryCatalog} />}
+            {tagSettingsError && (
+              <div className="mx-8 mt-3 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm">
+                {tagSettingsError}
+              </div>
+            )}
+            {activeTab === 'ai-import' && <AIImportView onOpenLibrary={() => setActiveTab('products')} categoryCatalog={categoryCatalog} tagCatalog={tagCatalog} />}
+            {activeTab === 'products' && <ProductLibraryView key="products" categoryCatalog={categoryCatalog} tagCatalog={tagCatalog} />}
+            {activeTab === 'archived-products' && <ProductLibraryView key="archived-products" defaultStatusFilter="archived" title="封存商品" categoryCatalog={categoryCatalog} tagCatalog={tagCatalog} />}
             {activeTab === 'categories' && <CategoryManagementView catalog={categoryCatalog} onSave={handleSaveCategoryCatalog} />}
+            {activeTab === 'tags' && <ProductTagManagementView catalog={tagCatalog} onSave={handleSaveTagCatalog} />}
           </main>
         </div>
       );
